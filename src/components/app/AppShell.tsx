@@ -2,7 +2,6 @@ import { BrandMark } from "@/components/Brand";
 import { LoadingBlock, StatusPill } from "@/components/app/parts";
 import { Button } from "@/components/ui/button";
 import { api } from "@/convex/_generated/api";
-import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 import {
   getTelegram,
@@ -17,14 +16,13 @@ import {
   Gauge,
   LayoutDashboard,
   ListChecks,
-  LogOut,
   ShieldCheck,
   UserRound,
   Users,
   Wallet,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
+import { NavLink, Outlet, useLocation } from "react-router";
 
 const NAV = [
   { to: "/app", label: "Home", icon: LayoutDashboard, end: true },
@@ -59,10 +57,8 @@ function MiningPill({
   return <StatusPill tone="muted">Paused</StatusPill>;
 }
 
-function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
+function SidebarBody() {
   const snapshot = useQuery(api.app.snapshot);
-  const { signOut } = useAuth();
-  const navigate = useNavigate();
 
   return (
     <div className="flex h-full flex-col bg-sidebar">
@@ -102,7 +98,6 @@ function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
             key={item.to}
             to={item.to}
             end={item.end}
-            onClick={onNavigate}
             className={({ isActive }) =>
               cn(
                 "group relative flex items-center gap-2.5 rounded-sm border-l-2 px-3 py-2.5 font-mono text-[10.5px] uppercase tracking-[0.12em] transition-colors",
@@ -134,7 +129,6 @@ function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
             <p className="label-xs px-2 pb-2">Operator</p>
             <NavLink
               to="/admin"
-              onClick={onNavigate}
               className="flex items-center gap-2.5 rounded-sm px-3 py-2.5 font-mono text-[10.5px] uppercase tracking-[0.12em] text-warn transition-colors hover:bg-sidebar-accent/60"
             >
               <ShieldCheck className="size-3.5" /> Admin console
@@ -158,18 +152,6 @@ function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
                 : snapshot?.account.nexId}
             </p>
           </div>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Sign out"
-            className="text-muted-foreground hover:text-destructive"
-            onClick={async () => {
-              await signOut();
-              navigate("/");
-            }}
-          >
-            <LogOut className="size-3.5" />
-          </Button>
         </div>
       </div>
     </div>

@@ -2,7 +2,7 @@ import { api } from "@/convex/_generated/api";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, useQuery } from "convex/react";
 import { useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link } from "react-router";
 import { toast } from "sonner";
 import {
   BadgeCheck,
@@ -10,7 +10,6 @@ import {
   Globe2,
   HelpCircle,
   Languages,
-  LogOut,
   Save,
   Send,
   ShieldCheck,
@@ -37,7 +36,6 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 
 const PREFERENCES = [
@@ -71,8 +69,6 @@ export default function Profile() {
 function ProfileView({ snapshot }: { snapshot: Snapshot }) {
   const updatePreferences = useMutation(api.app.updatePreferences);
   const reportProblem = useMutation(api.app.reportProblem);
-  const { signOut } = useAuth();
-  const navigate = useNavigate();
   const { account, balance, config } = snapshot;
 
   const [displayName, setDisplayName] = useState(account.displayName);
@@ -489,17 +485,10 @@ function ProfileView({ snapshot }: { snapshot: Snapshot }) {
             <ChevronRight className="size-3.5 text-warn" />
           </Link>
         ) : null}
-        <Button
-          variant="outline"
-          size="sm"
-          className="mt-3 w-full gap-1.5 font-mono text-[10px] uppercase tracking-[0.1em]"
-          onClick={async () => {
-            await signOut();
-            navigate("/");
-          }}
-        >
-          <LogOut className="size-3" /> Sign out
-        </Button>
+        <p className="mt-3 font-mono text-[9px] leading-relaxed uppercase tracking-[0.1em] text-muted-foreground">
+          This session is tied to your Telegram account. Close the mini app to
+          end it — reopening returns you to the same NEXPOOL account.
+        </p>
       </Panel>
 
       <p className="pb-2 text-center font-mono text-[8.5px] uppercase leading-relaxed tracking-[0.12em] text-muted-foreground">

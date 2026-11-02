@@ -1,18 +1,16 @@
 import '@vly-ai/integrations';
 import { Toaster } from "@/components/ui/sonner";
-import { RequireAuth } from "@/components/RequireAuth";
+import { TelegramSessionGate } from "@/components/TelegramSessionGate";
 import { VlyToolbar } from "../vly-toolbar-readonly.tsx";
 import { ConvexAuthProvider } from "@convex-dev/auth/react";
 import { ConvexReactClient } from "convex/react";
 import { initTelegram } from "@/lib/telegram";
 import React, { StrictMode, useEffect, lazy, Suspense } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, Route, Routes, useLocation } from "react-router";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router";
 import "./index.css";
 
 // Lazy load route components for better code splitting
-const Landing = lazy(() => import("./pages/Landing.tsx"));
-const AuthPage = lazy(() => import("./pages/Auth.tsx"));
 const AppShell = lazy(() => import("./components/app/AppShell"));
 const Home = lazy(() => import("./pages/app/Home"));
 const MiningPage = lazy(() => import("./pages/app/Mining"));
@@ -130,47 +128,25 @@ createRoot(document.getElementById("root")!).render(
         <BrowserRouter>
           <RouteSyncer />
           <Suspense fallback={<RouteLoading />}>
-            <Routes>
-              <Route path="/" element={<Landing />} />
-              <Route
-                path="/auth"
-                element={<AuthPage redirectAfterAuth="/app" />}
-              />
-              <Route
-                path="/app"
-                element={
-                  <RequireAuth
-                    title="Sign in to open NEXPOOL"
-                    description="Mining balances, verified tasks, referral qualification and withdrawals are tied to your account."
-                    redirectImmediately
-                  >
-                    <AppShell />
-                  </RequireAuth>
-                }
-              >
-                <Route index element={<Home />} />
-                <Route path="mining" element={<MiningPage />} />
-                <Route path="tasks" element={<TasksPage />} />
-                <Route path="referrals" element={<ReferralsPage />} />
-                <Route path="wallet" element={<WalletPage />} />
-                <Route path="withdraw" element={<WithdrawPage />} />
-                <Route path="profile" element={<ProfilePage />} />
-                <Route path="notifications" element={<NotificationsPage />} />
-              </Route>
-              <Route
-                path="/admin"
-                element={
-                  <RequireAuth
-                    title="Operator sign-in required"
-                    description="The NEXPOOL admin console is protected by backend authorization and audited."
-                    redirectImmediately
-                  >
-                    <AdminPage />
-                  </RequireAuth>
-                }
-              />
-              <Route path="*" element={<NotFound />} />
-            </Routes>
+            <TelegramSessionGate>
+              <Routes>
+                {/* Telegram Mini App: no landing page, no sign-in form. */}
+                <Route path="/" element={<Navigate to="/app" replace />} />
+                <Route path="/auth" element={<Navigate to="/app" replace />} />
+                <Route path="/app" element={<AppShell />}>
+                  <Route index element={<Home />} />
+                  <Route path="mining" element={<MiningPage />} />
+                  <Route path="tasks" element={<TasksPage />} />
+                  <Route path="referrals" element={<ReferralsPage />} />
+                  <Route path="wallet" element={<WalletPage />} />
+                  <Route path="withdraw" element={<WithdrawPage />} />
+                  <Route path="profile" element={<ProfilePage />} />
+                  <Route path="notifications" element={<NotificationsPage />} />
+                </Route>
+                <Route path="/admin" element={<AdminPage />} />
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </TelegramSessionGate>
           </Suspense>
         </BrowserRouter>
         <Toaster />

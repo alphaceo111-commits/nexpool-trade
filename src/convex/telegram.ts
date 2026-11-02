@@ -6,62 +6,13 @@ import {
   internalAction,
   internalMutation,
 } from "./_generated/server";
+import { verifyTelegramInitData } from "./auth/telegram";
 import { ensureAccount } from "./engine";
 
-function parseInitData(initData: string) {
-  const params = new URLSearchParams(initData);
-  const hash = params.get("hash");
-  if (!hash) return null;
-  params.delete("hash");
-  const entries = [...params.entries()].sort(([a], [b]) => a.localeCompare(b));
-  const dataCheckString = entries.map(([key, value]) => `${key}=${value}`).join("\n");
-  const authDate = Number(params.get("auth_date") ?? 0);
-  const rawUser = params.get("user");
-  let user:
-    | {
-        id?: number;
-        first_name?: string;
-        last_name?: string;
-        username?: string;
-        photo_url?: string;
-      }
-    | undefined;
-  if (rawUser) {
-    try {
-      user = JSON.parse(rawUser);
-    } catch {
-      user = undefined;
-    }
-  }
-  return { hash, dataCheckString, authDate, user, startParam: params.get("start_param") };
-}
-
-async function importHmacKey(keyData: Uint8Array) {
-  return crypto.subtle.importKey(
-    "raw",
-    keyData as unknown as BufferSource,
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-}
-
-async function hmacHex(keyData: Uint8Array, message: string) {
-  const key = await importHmacKey(keyData);
-  const signature = await crypto.subtle.sign(
-    "HMAC",
-    key,
-    new TextEncoder().encode(message),
-  );
-  return [...new Uint8Array(signature)]
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
-}
-
 /**
- * Validates Telegram Mini App initData with the bot token (HMAC-SHA256 per
- * Telegram's documented scheme) and links the verified identity to the account.
- * Without a configured bot token it reports that honestly — it never guesses.
+ * Links the Telegram identity to the signed-in account. Sign-in itself happens
+ * through the `telegram` auth provider; this action keeps the NEXPOOL profile
+ * (display name, handle, avatar, chat id for notifications) in sync.
  */
 export const linkTelegram = action({
   args: { initData: v.string() },
@@ -85,50 +36,23 @@ export const linkTelegram = action({
           "TELEGRAM_BOT_TOKEN is not configured on the backend, so Telegram initData cannot be validated.",
       };
     }
-    if (!args.initData) {
-      return { linked: false, reason: "No Telegram session was provided." };
-    }
 
-    const parsed = parseInitData(args.initData);
-    if (!parsed) return { linked: false, reason: "Malformed Telegram initData." };
-    if (
-      !parsed.authDate ||
-      Math.abs(Date.now() / 1000 - parsed.authDate) > 86_400
-    ) {
-      return { linked: false, reason: "Telegram session expired. Reopen the mini app." };
-    }
-    if (!parsed.user?.id) {
-      return { linked: false, reason: "Telegram user payload missing." };
-    }
+    const check = await verifyTelegramInitData(args.initData, token);
+    if (!check.ok) return { linked: false, reason: check.reason };
 
-    try {
-      const webAppData = new TextEncoder().encode("WebAppData");
-      const secret = await hmacHex(webAppData, token);
-      const secretBytes = new Uint8Array(
-        secret.match(/.{2}/g)!.map((byte) => parseInt(byte, 16)),
-      );
-      const computed = await hmacHex(secretBytes, parsed.dataCheckString);
-      if (computed !== parsed.hash) {
-        return { linked: false, reason: "Telegram signature did not validate." };
-      }
-    } catch (error) {
-      console.error("Telegram signature error", error);
-      return { linked: false, reason: "Could not validate the Telegram signature." };
-    }
-
-    const telegramId = String(parsed.user.id);
+    const { identity } = check;
     const result = await ctx.runMutation(internal.telegram.attachIdentity, {
-      telegramId,
-      firstName: parsed.user.first_name,
-      lastName: parsed.user.last_name,
-      username: parsed.user.username,
-      photoUrl: parsed.user.photo_url,
-      startParam: parsed.startParam ?? undefined,
+      telegramId: identity.telegramId,
+      firstName: identity.firstName,
+      lastName: identity.lastName,
+      username: identity.username,
+      photoUrl: identity.photoUrl,
+      startParam: identity.startParam,
     });
     return {
       linked: true,
       telegramId: result.telegramId,
-      startParam: parsed.startParam ?? undefined,
+      startParam: identity.startParam,
     };
   },
 });
