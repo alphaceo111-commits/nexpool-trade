@@ -85,4 +85,39 @@ http.route({
   }),
 });
 
+/** TON Connect manifest, served over HTTPS with the caller's app origin. */
+http.route({
+  path: "/tonconnect/manifest",
+  method: "GET",
+  handler: httpAction(async (_ctx, request) => {
+    const referer = request.headers.get("referer");
+    let refererOrigin: string | null = null;
+    if (referer) {
+      try {
+        refererOrigin = new URL(referer).origin;
+      } catch {
+        refererOrigin = null;
+      }
+    }
+    const origin =
+      request.headers.get("origin") ??
+      refererOrigin ??
+      process.env.APP_ORIGIN ??
+      "https://nexpool.app";
+    const body = {
+      url: origin,
+      name: "NEXPOOL",
+      iconUrl: `${origin}/logo.svg`,
+    };
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+        "cache-control": "public, max-age=3600",
+        "access-control-allow-origin": "*",
+      },
+    });
+  }),
+});
+
 export default http;

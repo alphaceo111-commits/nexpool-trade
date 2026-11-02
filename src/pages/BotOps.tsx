@@ -54,14 +54,18 @@ export default function BotOps() {
 
   useEffect(() => {
     if (!data || hydrated) return;
-    setForm({
-      enabled: data.settings.enabled,
-      alertOnBlock: data.settings.alertOnBlock,
-      alertOnWorkerOffline: data.settings.alertOnWorkerOffline,
-      hashrateFloorPth: String(data.settings.hashrateFloorPth),
-      chatId: data.settings.chatId,
+    const snapshot = data.settings;
+    // Hydrate asynchronously: no synchronous cascading render from the effect.
+    queueMicrotask(() => {
+      setForm({
+        enabled: snapshot.enabled,
+        alertOnBlock: snapshot.alertOnBlock,
+        alertOnWorkerOffline: snapshot.alertOnWorkerOffline,
+        hashrateFloorPth: String(snapshot.hashrateFloorPth),
+        chatId: snapshot.chatId,
+      });
+      setHydrated(true);
     });
-    setHydrated(true);
   }, [data, hydrated]);
 
   useEffect(() => {

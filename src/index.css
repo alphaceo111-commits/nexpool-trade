@@ -50,6 +50,7 @@
   --color-down: var(--down);
   --color-warn: var(--warn);
   --color-signal: var(--signal);
+  --color-gold: var(--gold);
   --font-sans: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
@@ -95,7 +96,10 @@
   --up: oklch(0.82 0.19 148);
   --down: oklch(0.66 0.215 22);
   --warn: oklch(0.83 0.16 80);
+  --gold: oklch(0.855 0.145 89);
   --signal: oklch(0.915 0.185 118);
+  --tg-safe-top: 0px;
+  --tg-safe-bottom: 0px;
 }
 
 .dark {
@@ -188,6 +192,34 @@
   .no-scrollbar::-webkit-scrollbar {
     display: none;
   }
+  .safe-bottom {
+    padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px) + var(--tg-safe-bottom));
+  }
+  .safe-top {
+    padding-top: calc(var(--tg-safe-top));
+  }
+  .text-gold {
+    color: var(--gold);
+  }
+  .gold-glow {
+    text-shadow: 0 0 26px color-mix(in oklab, var(--gold) 26%, transparent);
+  }
+  .surface {
+    background-color: var(--card);
+    border: 1px solid var(--border);
+  }
+  .hairline {
+    border-color: color-mix(in oklab, var(--border) 74%, transparent);
+  }
+  .nav-blur {
+    background: color-mix(in oklab, var(--background) 88%, transparent);
+    backdrop-filter: blur(16px);
+  }
+  .num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+  }
 }
 
 @keyframes nex-ticker {
@@ -224,4 +256,71 @@
 }
 .animate-sweep {
   animation: nex-sweep 7s linear infinite;
+}
+
+@keyframes nex-ring {
+  0% {
+    transform: scale(0.82);
+    opacity: 0.55;
+  }
+  70% {
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+@keyframes nex-breathe {
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.035);
+  }
+}
+@keyframes nex-shimmer {
+  from {
+    background-position: -220% 0;
+  }
+  to {
+    background-position: 220% 0;
+  }
+}
+
+.mining-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 1px solid color-mix(in oklab, var(--signal) 55%, transparent);
+  animation: nex-ring 3.4s ease-out infinite;
+}
+.mining-breathe {
+  animation: nex-breathe 4.2s ease-in-out infinite;
+}
+.shimmer-line {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in oklab, var(--signal) 30%, transparent) 45%,
+    transparent 90%
+  );
+  background-size: 220% 100%;
+  animation: nex-shimmer 2.6s linear infinite;
+}
+.bottom-nav {
+  padding-bottom: calc(0.4rem + env(safe-area-inset-bottom, 0px) + var(--tg-safe-bottom));
+}
+@media (prefers-reduced-motion: reduce) {
+  .mining-ring,
+  .mining-breathe,
+  .shimmer-line,
+  .animate-ticker,
+  .animate-signal-pulse,
+  .animate-sweep {
+    animation: none;
+  }
 }

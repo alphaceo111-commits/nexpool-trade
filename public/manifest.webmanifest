@@ -1,11 +1,11 @@
 {
-  "name": "freebuff.com application",
-  "short_name": "freebuff.com",
-  "description": "freebuff.com application",
-  "start_url": "/",
+  "name": "NEXPOOL — Verified NEX Mining",
+  "short_name": "NEXPOOL",
+  "description": "Server-calculated NEX mining, verified sponsor tasks, referral qualification and TON payouts.",
+  "start_url": "/app",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#000000",
+  "background_color": "#0b0d10",
+  "theme_color": "#0b0d10",
   "icons": [
     {
       "src": "/logo.svg",

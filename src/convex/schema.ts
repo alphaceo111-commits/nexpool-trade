@@ -133,6 +133,229 @@ const schema = defineSchema(
       ts: v.number(),
     }).index("by_ts", ["ts"]),
 
+    // ------------------------------------------------------------------
+    // NEXPOOL rewards app (miner-facing mini app)
+    // ------------------------------------------------------------------
+
+    // Backend-controlled NEXPOOL economy. Single row keyed "default".
+    appConfig: defineTable({
+      key: v.string(),
+      baseRateNexPerHour: v.number(),
+      dailyLimitNex: v.number(),
+      nexUsdRate: v.number(),
+      tonUsdRate: v.number(),
+      minWithdrawNex: v.number(),
+      qualifiedReferralTarget: v.number(),
+      referralTaskTarget: v.number(),
+      referralBonusNexPerHour: v.number(),
+      referralBonusCap: v.number(),
+      treasuryAvailableUsd: v.number(),
+      miningEnabled: v.boolean(),
+      miningEnabledAt: v.number(),
+      withdrawalsEnabled: v.boolean(),
+      ownerUserId: v.optional(v.id("users")),
+      updatedAt: v.number(),
+      updatedBy: v.optional(v.string()),
+    }).index("by_key", ["key"]),
+
+    // One NEXPOOL account per signed-in auth user.
+    profiles: defineTable({
+      userId: v.id("users"),
+      nexId: v.string(),
+      displayName: v.string(),
+      username: v.optional(v.string()),
+      photoUrl: v.optional(v.string()),
+      telegramId: v.optional(v.string()),
+      telegramVerifiedAt: v.optional(v.number()),
+      referralCode: v.string(),
+      referredBy: v.optional(v.id("profiles")),
+      referredAt: v.optional(v.number()),
+      referralQualifiedAt: v.optional(v.number()),
+      language: v.string(),
+      notifyTasks: v.boolean(),
+      notifyMining: v.boolean(),
+      notifyWallet: v.boolean(),
+      notifyAnnouncements: v.boolean(),
+      walletAddress: v.optional(v.string()),
+      walletNetwork: v.optional(v.string()),
+      walletApp: v.optional(v.string()),
+      walletConnectedAt: v.optional(v.number()),
+      restricted: v.boolean(),
+      restrictionReason: v.optional(v.string()),
+      complianceCleared: v.boolean(),
+      createdAt: v.number(),
+    })
+      .index("by_user", ["userId"])
+      .index("by_nexId", ["nexId"])
+      .index("by_referralCode", ["referralCode"])
+      .index("by_referredBy", ["referredBy"])
+      .index("by_telegramId", ["telegramId"]),
+
+    // Confirmed NEX balances. Only the backend writes here.
+    balances: defineTable({
+      userId: v.id("users"),
+      availableNex: v.number(),
+      reservedNex: v.number(),
+      lifetimeMinedNex: v.number(),
+      lifetimeTaskNex: v.number(),
+      lastSettledAt: v.number(),
+      updatedAt: v.number(),
+    }).index("by_user", ["userId"]),
+
+    // Settled mining per UTC day, used to enforce the server daily cap.
+    miningDays: defineTable({
+      userId: v.id("users"),
+      day: v.string(),
+      minedNex: v.number(),
+      updatedAt: v.number(),
+    }).index("by_user_day", ["userId", "day"]),
+
+    // Materialised mining settlements (history + audit of rate used).
+    miningEntries: defineTable({
+      userId: v.id("users"),
+      day: v.string(),
+      amountNex: v.number(),
+      rateNexPerHour: v.number(),
+      fromTs: v.number(),
+      toTs: v.number(),
+      createdAt: v.number(),
+    })
+      .index("by_user_createdAt", ["userId", "createdAt"])
+      .index("by_user_day", ["userId", "day"]),
+
+    // Single source of truth for every NEX movement.
+    ledger: defineTable({
+      userId: v.id("users"),
+      kind: v.union(
+        v.literal("mining"),
+        v.literal("task"),
+        v.literal("referral"),
+        v.literal("withdrawal"),
+        v.literal("refund"),
+        v.literal("adjustment"),
+      ),
+      amountNex: v.number(),
+      memo: v.string(),
+      refId: v.optional(v.string()),
+      createdAt: v.number(),
+    })
+      .index("by_user_createdAt", ["userId", "createdAt"])
+      .index("by_createdAt", ["createdAt"]),
+
+    // Sponsor campaigns. Rewards only settle after verification.
+    tasks: defineTable({
+      title: v.string(),
+      sponsor: v.string(),
+      category: v.union(
+        v.literal("advertisement"),
+        v.literal("join_channel"),
+        v.literal("join_group"),
+        v.literal("sponsor_bot"),
+        v.literal("social"),
+      ),
+      description: v.string(),
+      instructions: v.array(v.string()),
+      rewardNex: v.number(),
+      speedBonusNexPerHour: v.number(),
+      verification: v.union(
+        v.literal("telegram_channel"),
+        v.literal("telegram_group"),
+        v.literal("telegram_bot"),
+        v.literal("provider_ad"),
+        v.literal("social"),
+        v.literal("manual"),
+      ),
+      target: v.optional(v.string()),
+      verificationNote: v.string(),
+      status: v.union(
+        v.literal("active"),
+        v.literal("paused"),
+        v.literal("archived"),
+      ),
+      expiresAt: v.optional(v.number()),
+      createdAt: v.number(),
+      createdBy: v.string(),
+    })
+      .index("by_status", ["status"])
+      .index("by_createdAt", ["createdAt"]),
+
+    // A user's progress on a task. No reward is granted on insert.
+    taskCompletions: defineTable({
+      userId: v.id("users"),
+      taskId: v.id("tasks"),
+      status: v.union(
+        v.literal("pending"),
+        v.literal("verified"),
+        v.literal("rejected"),
+        v.literal("unavailable"),
+      ),
+      startedAt: v.number(),
+      submittedAt: v.optional(v.number()),
+      verifiedAt: v.optional(v.number()),
+      rewardNex: v.number(),
+      speedBonusNexPerHour: v.number(),
+      note: v.optional(v.string()),
+      verifiedBy: v.optional(v.string()),
+    })
+      .index("by_user", ["userId"])
+      .index("by_user_task", ["userId", "taskId"])
+      .index("by_status", ["status"])
+      .index("by_task", ["taskId"]),
+
+    // Withdrawal requests. Balance is reserved on submit, settled by admin.
+    withdrawals: defineTable({
+      userId: v.id("users"),
+      nexAmount: v.number(),
+      usdValue: v.number(),
+      nexUsdRate: v.number(),
+      tonAmount: v.number(),
+      tonUsdRate: v.number(),
+      destination: v.string(),
+      network: v.string(),
+      status: v.union(
+        v.literal("requested"),
+        v.literal("reviewing"),
+        v.literal("paid"),
+        v.literal("rejected"),
+        v.literal("failed"),
+      ),
+      txHash: v.optional(v.string()),
+      chainVerifiedAt: v.optional(v.number()),
+      chainVerificationNote: v.optional(v.string()),
+      note: v.optional(v.string()),
+      requestedAt: v.number(),
+      decidedAt: v.optional(v.number()),
+      decidedBy: v.optional(v.string()),
+    })
+      .index("by_user_requestedAt", ["userId", "requestedAt"])
+      .index("by_status", ["status"])
+      .index("by_requestedAt", ["requestedAt"]),
+
+    // In-app + Telegram notification feed (one row per recipient).
+    notifications: defineTable({
+      userId: v.id("users"),
+      kind: v.union(
+        v.literal("task"),
+        v.literal("mining"),
+        v.literal("referral"),
+        v.literal("wallet"),
+        v.literal("announcement"),
+      ),
+      title: v.string(),
+      body: v.string(),
+      readAt: v.optional(v.number()),
+      createdAt: v.number(),
+    }).index("by_user_createdAt", ["userId", "createdAt"]),
+
+    // Operator audit trail for every privileged action.
+    auditLogs: defineTable({
+      actorId: v.optional(v.string()),
+      actorLabel: v.string(),
+      action: v.string(),
+      detail: v.string(),
+      createdAt: v.number(),
+    }).index("by_createdAt", ["createdAt"]),
+
     // Operator activity feed.
     events: defineTable({
       kind: v.union(
