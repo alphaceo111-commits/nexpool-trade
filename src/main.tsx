@@ -21,6 +21,7 @@ const WithdrawPage = lazy(() => import("./pages/app/Withdraw"));
 const ProfilePage = lazy(() => import("./pages/app/Profile"));
 const NotificationsPage = lazy(() => import("./pages/app/Notifications"));
 const AdminPage = lazy(() => import("./pages/Admin"));
+const BotOpsPage = lazy(() => import("./pages/BotOps"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 
 // Simple loading fallback for route transitions
@@ -144,6 +145,7 @@ createRoot(document.getElementById("root")!).render(
                   <Route path="notifications" element={<NotificationsPage />} />
                 </Route>
                 <Route path="/admin" element={<AdminPage />} />
+                <Route path="/admin/bot" element={<BotOpsPage />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </TelegramSessionGate>

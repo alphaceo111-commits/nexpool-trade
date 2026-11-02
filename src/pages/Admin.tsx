@@ -23,6 +23,7 @@ import { toast } from "sonner";
 import {
   Activity,
   ArrowLeft,
+  ArrowUpRight,
   Ban,
   Check,
   CheckCircle2,
@@ -90,7 +91,7 @@ export default function Admin() {
         body="The admin console is protected by backend authorization."
         action={
           <Button asChild>
-            <Link to="/auth?returnTo=%2Fadmin">Sign in</Link>
+            <Link to="/app">Back to NEXPOOL</Link>
           </Button>
         }
       />
@@ -148,6 +149,12 @@ export default function Admin() {
           <span className="ml-auto hidden items-center gap-1.5 border border-warn/40 bg-warn/[0.06] px-2 py-1 font-mono text-[9px] uppercase tracking-[0.12em] text-warn sm:flex">
             <ShieldCheck className="size-3" /> authorized operator
           </span>
+          <Link
+            to="/admin/bot"
+            className="hidden items-center gap-1 font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground hover:text-foreground sm:flex"
+          >
+            Bot desk <ArrowUpRight className="size-3" />
+          </Link>
           <Link
             to="/app"
             className="flex items-center gap-1 font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground hover:text-foreground"
@@ -1250,7 +1257,7 @@ function UserTable() {
                     </span>
                   </div>
                   <p className="mt-0.5 truncate font-mono text-[9px] text-muted-foreground">
-                    {user.email ?? "no email"} ·{" "}
+                    {user.email ?? "Telegram account"} ·{" "}
                     {formatDateTime(user.createdAt)}
                   </p>
                 </div>

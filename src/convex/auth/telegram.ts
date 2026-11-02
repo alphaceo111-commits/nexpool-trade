@@ -144,7 +144,13 @@ export const telegramAuth = ConvexCredentials({
     if (!check.ok) throw new Error(check.reason);
 
     const { identity } = check;
-    const ownerIds = (process.env.TELEGRAM_ADMIN_ID ?? "")
+    // Owner ids may be provided under either name; both accept a comma or
+    // space separated list.
+    const ownerIds = (
+      process.env.TELEGRAM_ADMIN_ID ??
+      process.env.TELEGRAM_OWNER_ID ??
+      ""
+    )
       .split(/[\s,]+/)
       .filter(Boolean);
     const isOwner = ownerIds.includes(identity.telegramId);

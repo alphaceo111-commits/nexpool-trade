@@ -1,7 +1,7 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import {
   audit,
   CONFIG_DEFAULTS,
@@ -92,6 +92,18 @@ export const claimOwner = mutation({
       "First operator claimed the NEXPOOL admin console.",
     );
     return { isAdmin: true };
+  },
+});
+
+/**
+ * Authorization probe for actions that cannot run requireAdmin directly
+ * (they live outside this module). Throws unless the caller is the operator.
+ */
+export const assertOperator = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const { userId } = await requireAdmin(ctx);
+    return { userId };
   },
 });
 

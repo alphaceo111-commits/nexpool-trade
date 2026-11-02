@@ -1,7 +1,9 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { internalMutation, mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
+import { action, internalMutation, mutation, query } from "./_generated/server";
+import { audit } from "./engine";
 
 const BOT_KEY = "default";
 const UNITS = { BTC: "BTC", LTC: "LTC", KAS: "KAS", ETC: "ETC" } as const;
@@ -301,5 +303,84 @@ export const updateSettings = mutation({
       severity: args.enabled ? "success" : "warn",
       ts: Date.now(),
     });
+  },
+});
+
+export const recordWebhookRegistration = internalMutation({
+  args: { url: v.string(), detail: v.string() },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (userId) {
+      const user = await ctx.db.get(userId);
+      await audit(
+        ctx,
+        { userId, label: user?.email ?? user?.name ?? String(userId) },
+        "bot.webhook.registered",
+        `${args.url} — ${args.detail}`,
+      );
+    }
+    await ctx.db.insert("events", {
+      kind: "bot",
+      message: `Telegram webhook registered · ${args.detail}`,
+      severity: "success",
+      ts: Date.now(),
+    });
+  },
+});
+
+/**
+ * Points Telegram at this deployment's webhook with the configured secret, so
+ * bot commands and verification callbacks actually reach the engine. Run it
+ * once from the operator console; re-running is idempotent on Telegram's side.
+ */
+export const registerWebhook = action({
+  args: {},
+  handler: async (ctx) => {
+    await ctx.runMutation(internal.admin.assertOperator, {});
+
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    if (!token) {
+      throw new Error(
+        "TELEGRAM_BOT_TOKEN is not configured on the backend, so the webhook cannot be registered.",
+      );
+    }
+    const siteUrl = process.env.CONVEX_SITE_URL;
+    if (!siteUrl) {
+      throw new Error("CONVEX_SITE_URL is not configured on the backend.");
+    }
+
+    const url = `${siteUrl}/telegram/webhook`;
+    const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
+    const body: Record<string, unknown> = {
+      url,
+      allowed_updates: ["message", "edited_message"],
+      drop_pending_updates: false,
+    };
+    if (secret) body.secret_token = secret;
+
+    const response = await fetch(
+      `https://api.telegram.org/bot${token}/setWebhook`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+    const payload = (await response.json().catch(() => ({}))) as {
+      ok?: boolean;
+      description?: string;
+    };
+
+    if (!response.ok || !payload.ok) {
+      const detail =
+        payload.description ?? `Telegram rejected setWebhook (HTTP ${response.status}).`;
+      throw new Error(detail);
+    }
+
+    await ctx.runMutation(internal.bot.recordWebhookRegistration, {
+      url,
+      detail: secret ? "secret token attached" : "no secret token configured",
+    });
+    return { url, secretRequired: Boolean(secret) };
   },
 });

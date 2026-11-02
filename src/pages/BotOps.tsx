@@ -6,9 +6,11 @@ import { Switch } from "@/components/ui/switch";
 import { api } from "@/convex/_generated/api";
 import { formatTime } from "@/lib/nexpool";
 import { cn } from "@/lib/utils";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
+import { Link } from "react-router";
 import { motion } from "framer-motion";
 import {
+  ArrowLeft,
   ArrowUpRight,
   Bot,
   Check,
@@ -34,13 +36,16 @@ const COMMANDS = [
 
 export default function BotOps() {
   const data = useQuery(api.bot.overview);
+  const access = useQuery(api.admin.access);
   const runCommand = useMutation(api.bot.runConsoleCommand);
   const updateSettings = useMutation(api.bot.updateSettings);
+  const registerWebhook = useAction(api.bot.registerWebhook);
 
   const [input, setInput] = useState("/stats");
   const [sending, setSending] = useState(false);
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [registering, setRegistering] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const [form, setForm] = useState({
@@ -73,10 +78,26 @@ export default function BotOps() {
     if (node) node.scrollTop = node.scrollHeight;
   }, [data?.messages.length]);
 
-  if (!data) {
+  if (!data || access === undefined) {
     return (
       <div className="flex h-[60vh] items-center justify-center">
         <Loader2 className="size-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!access.isAdmin) {
+    return (
+      <div className="flex h-[60vh] flex-col items-center justify-center gap-3 px-4 text-center">
+        <Bot className="size-5 text-muted-foreground" />
+        <p className="text-sm font-semibold">Operator access required</p>
+        <p className="max-w-sm text-[12px] leading-relaxed text-muted-foreground">
+          The bot desk is restricted to the configured operator account. Open it
+          from the NEXPOOL mini app as the operator.
+        </p>
+        <Button asChild variant="outline" size="sm">
+          <Link to="/app">Back to NEXPOOL</Link>
+        </Button>
       </div>
     );
   }
@@ -118,6 +139,25 @@ export default function BotOps() {
     }
   }
 
+  async function registerWebhookNow() {
+    if (registering) return;
+    setRegistering(true);
+    try {
+      const result = await registerWebhook();
+      toast.success("Webhook registered", {
+        description: `${result.url}${
+          result.secretRequired ? " · secret token attached" : ""
+        }`,
+      });
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Could not register the webhook.",
+      );
+    } finally {
+      setRegistering(false);
+    }
+  }
+
   async function copyWebhook() {
     try {
       await navigator.clipboard.writeText(data!.webhookUrl);
@@ -137,6 +177,12 @@ export default function BotOps() {
 
   return (
     <div className="space-y-4">
+      <Link
+        to="/admin"
+        className="flex w-fit items-center gap-1 font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground hover:text-foreground"
+      >
+        <ArrowLeft className="size-3" /> Operator console
+      </Link>
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
@@ -324,6 +370,19 @@ export default function BotOps() {
               </div>
             </div>
 
+            <Button
+              className="w-full gap-1.5 font-mono text-[10px] uppercase tracking-[0.1em]"
+              onClick={registerWebhookNow}
+              disabled={registering || !data.configured || !data.webhookUrl}
+            >
+              {registering ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Radio className="size-3.5" />
+              )}
+              {registering ? "Registering…" : "Register webhook"}
+            </Button>
+
             <div>
               <p className="label-xs mb-1.5 flex items-center gap-1.5">
                 <KeyRound className="size-3" /> Required keys
@@ -347,12 +406,10 @@ export default function BotOps() {
                 </li>
               </ul>
               <p className="mt-2 border border-border bg-background px-2 py-2 font-mono text-[10px] leading-relaxed text-muted-foreground">
-                Add keys in the project&apos;s Keys tab, then point Telegram at the webhook:
-                <br />
-                <span className="text-foreground/80">
-                  setWebhook(url, secret_token)
-                </span>
-                . The console below works without a token.
+                Keys live in the project&apos;s Keys tab. <b>Register webhook</b>{" "}
+                calls Telegram&apos;s setWebhook with the endpoint above and the
+                configured secret token, then writes an audit entry. Re-running
+                it is safe.
               </p>
             </div>
           </Panel>
