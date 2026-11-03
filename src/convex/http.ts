@@ -55,23 +55,32 @@ http.route({
     const chatId =
       message?.chat?.id !== undefined ? String(message.chat.id) : undefined;
 
-    const reply: string = await ctx.runMutation(internal.bot.handleIncoming, {
+    const reply = await ctx.runMutation(internal.bot.handleIncoming, {
       text,
       chatId,
       source: "telegram",
     });
 
+    const appUrl = process.env.APP_ORIGIN ?? process.env.CONVEX_SITE_URL;
     const token = process.env.TELEGRAM_BOT_TOKEN;
     if (token && chatId) {
       try {
+        const payload: Record<string, unknown> = {
+          chat_id: chatId,
+          text: reply.text,
+          disable_web_page_preview: true,
+        };
+        if (reply.openApp && appUrl) {
+          payload.reply_markup = {
+            inline_keyboard: [
+              [{ text: "Open NEXPOOL App", web_app: { url: appUrl } }],
+            ],
+          };
+        }
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            chat_id: chatId,
-            text: reply,
-            disable_web_page_preview: true,
-          }),
+          body: JSON.stringify(payload),
         });
       } catch (error) {
         console.error("Telegram sendMessage failed", error);

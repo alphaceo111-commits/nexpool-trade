@@ -103,7 +103,7 @@ export default function Withdraw() {
       </Link>
 
       <SectionHeading
-        index="05"
+        index="07"
         title="Withdraw NEX"
         body="Server-adjudicated payout eligibility. Nothing is approved in the browser."
         action={

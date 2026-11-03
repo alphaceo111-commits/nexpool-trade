@@ -3,7 +3,7 @@ import { v } from "convex/values";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { action, internalMutation, mutation, query } from "./_generated/server";
-import { audit } from "./engine";
+import { audit, computeSpeed, dayKey, loadConfig, roundNex } from "./engine";
 
 const BOT_KEY = "default";
 const UNITS = { BTC: "BTC", LTC: "LTC", KAS: "KAS", ETC: "ETC" } as const;
@@ -141,6 +141,362 @@ const HELP = [
   "/help     this message",
 ].join("\n");
 
+/* ------------------------------------------------------------------ */
+/* User commands — same accounts and ledger as the mini app           */
+/* ------------------------------------------------------------------ */
+
+const USER_COMMANDS = new Set([
+  "/start",
+  "/app",
+  "/balance",
+  "/mining",
+  "/tasks",
+  "/referral",
+  "/wallet",
+  "/deposit",
+  "/withdraw",
+  "/history",
+  "/help",
+  "/terms",
+  "/support",
+]);
+
+function normalizeCommand(raw: string) {
+  return (
+    raw
+      .trim()
+      .toLowerCase()
+      .replace(/@\w+/, "")
+      .split(/\s+/)[0] ?? ""
+  );
+}
+
+type UserAccount = {
+  displayName: string;
+  username: string | undefined;
+  nexId: string;
+  referralCode: string;
+  walletAddress: string | undefined;
+  restricted: boolean;
+  availableNex: number;
+  reservedNex: number;
+  lifetimeMinedNex: number;
+  lifetimeTaskNex: number;
+  minWithdrawUsd: number;
+  miningEnabled: boolean;
+  speed: { base: number; taskBonus: number; referralBonus: number; total: number };
+  todayNex: number;
+  dailyCapNex: number;
+  tasks: { available: number; pending: number; completed: number };
+  referrals: { total: number; qualified: number; target: number; taskTarget: number };
+  pendingWithdrawalNex: number;
+  withdrawalsEnabled: boolean;
+  treasuryAvailableUsd: number;
+  ledger: { kind: string; amountNex: number; memo: string }[];
+};
+
+/** Loads everything a bot command needs for the Telegram chat's account. */
+async function userSnapshot(
+  ctx: MutationCtx,
+  chatId: string,
+): Promise<UserAccount | null> {
+  const profile = await ctx.db
+    .query("profiles")
+    .withIndex("by_telegramId", (q) => q.eq("telegramId", chatId))
+    .first();
+  if (!profile) return null;
+  const balance = await ctx.db
+    .query("balances")
+    .withIndex("by_user", (q) => q.eq("userId", profile.userId))
+    .first();
+  if (!balance) return null;
+
+  const config = await loadConfig(ctx);
+  const speed = await computeSpeed(ctx, profile, config);
+
+  const now = Date.now();
+  const miningDay = await ctx.db
+    .query("miningDays")
+    .withIndex("by_user_day", (q) =>
+      q.eq("userId", profile.userId).eq("day", dayKey(now)),
+    )
+    .first();
+
+  const tasks = (await ctx.db.query("tasks").collect()).filter(
+    (task) => task.status === "active" && (!task.expiresAt || task.expiresAt > now),
+  );
+  const completions = await ctx.db
+    .query("taskCompletions")
+    .withIndex("by_user", (q) => q.eq("userId", profile.userId))
+    .collect();
+  const verified = new Set(
+    completions
+      .filter((row) => row.status === "verified")
+      .map((row) => String(row.taskId)),
+  );
+  const completionByTask = new Map(
+    completions.map((row) => [String(row.taskId), row]),
+  );
+
+  const referred = await ctx.db
+    .query("profiles")
+    .withIndex("by_referredBy", (q) => q.eq("referredBy", profile._id))
+    .collect();
+  const qualification = await Promise.all(
+    referred.map(async (referral) => {
+      const rows = await ctx.db
+        .query("taskCompletions")
+        .withIndex("by_user", (q) => q.eq("userId", referral.userId))
+        .collect();
+      const distinct = new Set(
+        rows
+          .filter((row) => row.status === "verified")
+          .map((row) => String(row.taskId)),
+      );
+      return distinct.size >= config.referralTaskTarget;
+    }),
+  );
+  const qualified = qualification.filter(Boolean).length;
+
+  const ledger = await ctx.db
+    .query("ledger")
+    .withIndex("by_user_createdAt", (q) => q.eq("userId", profile.userId))
+    .order("desc")
+    .take(5);
+
+  const withdrawals = await ctx.db
+    .query("withdrawals")
+    .withIndex("by_user_requestedAt", (q) => q.eq("userId", profile.userId))
+    .order("desc")
+    .take(10);
+
+  return {
+    displayName: profile.displayName,
+    username: profile.username,
+    nexId: profile.nexId,
+    referralCode: profile.referralCode,
+    walletAddress: profile.walletAddress,
+    restricted: profile.restricted,
+    availableNex: roundNex(balance.availableNex),
+    reservedNex: roundNex(balance.reservedNex),
+    lifetimeMinedNex: roundNex(balance.lifetimeMinedNex),
+    lifetimeTaskNex: roundNex(balance.lifetimeTaskNex),
+    minWithdrawUsd: roundNex(config.minWithdrawNex * config.nexUsdRate),
+    miningEnabled: config.miningEnabled,
+    speed: {
+      base: speed.base,
+      taskBonus: speed.taskBonus,
+      referralBonus: speed.referralBonus,
+      total: speed.total,
+    },
+    todayNex: roundNex(miningDay?.minedNex ?? 0),
+    dailyCapNex: config.dailyLimitNex,
+    tasks: {
+      available: tasks.filter(
+        (task) => completionByTask.get(String(task._id))?.status !== "verified",
+      ).length,
+      pending: completions.filter(
+        (row) => row.status === "pending" || row.status === "unavailable",
+      ).length,
+      completed: verified.size,
+    },
+    referrals: {
+      total: referred.length,
+      qualified,
+      target: config.qualifiedReferralTarget,
+      taskTarget: config.referralTaskTarget,
+    },
+    pendingWithdrawalNex: roundNex(
+      withdrawals
+        .filter(
+          (row) => row.status === "requested" || row.status === "reviewing",
+        )
+        .reduce((sum, row) => sum + row.nexAmount, 0),
+    ),
+    withdrawalsEnabled: config.withdrawalsEnabled,
+    treasuryAvailableUsd: config.treasuryAvailableUsd,
+    ledger: ledger.map((row) => ({
+      kind: row.kind,
+      amountNex: row.amountNex,
+      memo: row.memo,
+    })),
+  };
+}
+
+function buildUserReply(
+  chatId: string | undefined,
+  account: UserAccount | null,
+  raw: string,
+  appUrl: string,
+): { text: string; openApp: boolean } {
+  const command = normalizeCommand(raw);
+  const appButton =
+    Boolean(chatId && appUrl) &&
+    USER_COMMANDS.has(command) &&
+    command !== "/help" &&
+    command !== "/terms";
+  const referralLink =
+    account && chatId
+      ? `https://t.me/${(process.env.TELEGRAM_BOT_USERNAME ?? "nexpool_desk_bot").replace(/^@/, "")}?start=${account.referralCode}`
+      : null;
+
+  if (!account) {
+    return {
+      text: [
+        "NEXPOOL 🛠️",
+        "",
+        "Anything here can only be answered from your NEXPOOL account.",
+        "The account itself is created inside the mini app from your verified Telegram identity — this bot never invents balances or rewards.",
+        "",
+        "Tap Open NEXPOOL App to create your account, mine, complete verified tasks and invite friends.",
+      ].join("\n"),
+      openApp: true,
+    };
+  }
+
+  const head = `NEXPOOL · ${command.slice(1).toUpperCase()}`;
+  let body: string;
+  let extra: string[] = [];
+
+  switch (command) {
+    case "/start":
+      body = [
+        `Welcome to NEXPOOL! 👋`,
+        `Account ${account.nexId} is live with the same ledger as this bot.`,
+        `Available: ${account.availableNex} NEX · speed ${account.speed.total} NEX/h.`,
+        "Mine, complete verified tasks and invite friends — rewards post to your ledger once the backend confirms them.",
+      ].join("\n");
+      extra = ["Open the mini app for the full dashboard."];
+      break;
+    case "/app":
+      body = "NEXPOOL opens here 👇";
+      break;
+    case "/balance":
+      body = [
+        head,
+        `Available ${account.availableNex} NEX`,
+        `Reserved ${account.reservedNex} NEX`,
+        `Lifetime mined ${account.lifetimeMinedNex} NEX · tasks ${account.lifetimeTaskNex} NEX`,
+        "Reference value only — redemption depends on the funding pool.",
+      ].join("\n");
+      break;
+    case "/mining":
+      body = account.miningEnabled
+        ? [
+            head,
+            `Today ${account.todayNex} / ${roundNex(account.dailyCapNex)} NEX`,
+            `Speed ${account.speed.total} NEX/h (base ${account.speed.base} · tasks +${account.speed.taskBonus} · referrals +${account.speed.referralBonus})`,
+            account.todayNex >= account.dailyCapNex
+              ? "Daily cap reached — accrual resumes at 00:00 UTC."
+              : "Open the app to start or check your session.",
+          ].join("\n")
+        : [
+            head,
+            "Mining is paused by the operator. Balances are safe; no NEX accrues while paused.",
+          ].join("\n");
+      break;
+    case "/tasks":
+      body = [
+        head,
+        `Available ${account.tasks.available} · in review ${account.tasks.pending} · completed ${account.tasks.completed}`,
+        "Rewards settle only after backend verification — a button click never counts.",
+      ].join("\n");
+      break;
+    case "/referral":
+      body = [
+        head,
+        `Qualified ${account.referrals.qualified} / ${account.referrals.target}`,
+        `Each referral must complete ${account.referrals.taskTarget} verified tasks to count.`,
+        referralLink ? `Link: ${referralLink}` : "Open the app to get your link.",
+      ].join("\n");
+      break;
+    case "/wallet":
+      body = [
+        head,
+        `Available ${account.availableNex} NEX · reserved ${account.reservedNex} NEX`,
+        `Pending payouts ${account.pendingWithdrawalNex} NEX`,
+        account.walletAddress
+          ? `Destination ${account.walletAddress.slice(0, 6)}…${account.walletAddress.slice(-6)} (TON)`
+          : "No TON wallet linked yet — connect one in the app.",
+      ].join("\n");
+      break;
+    case "/deposit":
+      body = [
+        head,
+        "External deposits are not enabled on this deployment.",
+        "NEX is credited only through verified mining, task rewards and referral bonuses — always from the backend ledger.",
+      ].join("\n");
+      break;
+    case "/withdraw": {
+      const liquidityOk = account.treasuryAvailableUsd >= account.minWithdrawUsd;
+      body = [
+        head,
+        account.withdrawalsEnabled ? "Withdrawal desk: open" : "Withdrawals paused by the operator",
+        `Available ${account.availableNex} NEX · reserved ${account.reservedNex} NEX`,
+        account.walletAddress
+          ? "Destination linked ✓"
+          : "No destination wallet linked ✗",
+        liquidityOk
+          ? "Payout liquidity reported ✓"
+          : "Payout liquidity below the minimum ✗ — conversion waits until the pool is funded.",
+        "Full eligibility checklist lives in the app.",
+      ].join("\n");
+      break;
+    }
+    case "/history":
+      body = [
+        head,
+        ...account.ledger.map(
+          (row) =>
+            `${row.amountNex >= 0 ? "+" : "-"}${Math.abs(row.amountNex)} NEX · ${row.memo}`,
+        ),
+        "Full ledger in the app (Wallet → History).",
+      ].join("\n");
+      break;
+    case "/help":
+      body = [
+        "NEXPOOL · USER COMMANDS",
+        "/balance  available, reserved, lifetime NEX",
+        "/mining   today's accrual, speed, daily cap",
+        "/tasks    available and in-review tasks",
+        "/referral your invite link and qualification",
+        "/wallet   balances, payouts, destination wallet",
+        "/deposit  how NEX is credited",
+        "/withdraw eligibility snapshot",
+        "/history  recent ledger entries",
+        "/terms    rules summary",
+        "/support  reach the operator",
+        "/app      open the mini app",
+      ].join("\n");
+      break;
+    case "/terms":
+      body = [
+        "NEXPOOL · RULES",
+        "1. Rewards are backend-verified only; nothing is simulated.",
+        `2. Daily mining cap ${roundNex(account.dailyCapNex)} NEX at server time.`,
+        `3. A referral counts after ${account.referrals.taskTarget} verified tasks; withdrawals need ${account.referrals.target} qualified referrals.`,
+        "4. NEX converts at the published reference rate while the reward pool is funded.",
+        "5. Fraud, self-referrals and duplicates are rejected by the engine, not by chat moderators.",
+        "6. Operators can pause mining, tasks and payouts; paused services accrue nothing.",
+      ].join("\n");
+      break;
+    case "/support":
+      body = [
+        "NEXPOOL · SUPPORT",
+        "Reply to this chat — messages are logged and reviewed by the operator desk.",
+        "Account issues: open the app → Profile → Report a problem (writes to the audit trail).",
+      ].join("\n");
+      break;
+    default:
+      body = `Unknown command. Send /help for the NEXPOOL command list.`;
+  }
+
+  return {
+    text: extra.length > 0 ? `${body}\n\n${extra[0]}` : body,
+    openApp: appButton,
+  };
+}
+
 function buildReply(s: Snapshot, raw: string) {
   const command = raw.trim().toLowerCase().replace(/@\w+/, "").split(/\s+/)[0];
   switch (command) {
@@ -198,7 +554,11 @@ async function logExchange(
   });
 }
 
-/** Called by the Telegram webhook after the request is authenticated. */
+/**
+ * Called by the Telegram webhook after the request is authenticated.
+ * User-facing commands read the same accounts and ledger the mini app uses;
+ * desk commands remain available for the operator console.
+ */
 export const handleIncoming = internalMutation({
   args: {
     text: v.string(),
@@ -206,15 +566,33 @@ export const handleIncoming = internalMutation({
     source: v.optional(v.union(v.literal("telegram"), v.literal("console"))),
   },
   handler: async (ctx, args) => {
-    const snapshot = await poolSnapshot(ctx);
-    const reply = buildReply(snapshot, args.text);
+    let reply: string;
+    let openApp = false;
+    // Telegram chats only ever reach user-facing replies. Desk commands are
+    // answered by the operator console (runConsoleCommand), never by the bot,
+    // so pool and revenue internals are not exposed to arbitrary chats.
+    if (args.chatId) {
+      const user = await userSnapshot(ctx, args.chatId);
+      const built = buildUserReply(
+        args.chatId,
+        user,
+        args.text,
+        process.env.APP_ORIGIN ?? process.env.CONVEX_SITE_URL ?? "",
+      );
+      reply = built.text;
+      openApp = built.openApp;
+    } else {
+      const snapshot = await poolSnapshot(ctx);
+      reply = buildReply(snapshot, args.text);
+    }
+
     await logExchange(ctx, {
       text: args.text,
       reply,
       source: args.source ?? "telegram",
       chatId: args.chatId,
     });
-    return reply;
+    return { text: reply, openApp };
   },
 });
 

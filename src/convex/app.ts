@@ -396,6 +396,113 @@ export const reportProblem = mutation({
   },
 });
 
+/** Full transaction history for the authenticated account. */
+export const history = query({
+  args: {
+    kind: v.optional(
+      v.union(
+        v.literal("mining"),
+        v.literal("task"),
+        v.literal("referral"),
+        v.literal("withdrawal"),
+        v.literal("refund"),
+        v.literal("adjustment"),
+      ),
+    ),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const { userId, profile, balance } = await getViewer(ctx);
+    if (!userId || !profile || !balance) return null;
+
+    const limit = Math.min(Math.max(args.limit ?? 60, 20), 150);
+    const rows = (await ctx.db
+      .query("ledger")
+      .withIndex("by_user_createdAt", (q) => q.eq("userId", profile.userId))
+      .order("desc")
+      .take(400))
+      .filter((row) => !args.kind || row.kind === args.kind)
+      .slice(0, limit);
+
+    const withdrawals = await ctx.db
+      .query("withdrawals")
+      .withIndex("by_user_requestedAt", (q) => q.eq("userId", profile.userId))
+      .order("desc")
+      .take(40);
+
+    const config = await loadConfig(ctx);
+
+    return {
+      serverNow: Date.now(),
+      rows: rows.map((row) => ({
+        id: row._id,
+        kind: row.kind,
+        amountNex: row.amountNex,
+        memo: row.memo,
+        refId: row.refId,
+        createdAt: row.createdAt,
+      })),
+      withdrawals: withdrawals.map((row) => ({
+        id: row._id,
+        nexAmount: row.nexAmount,
+        usdValue: row.usdValue,
+        tonAmount: row.tonAmount,
+        destination: row.destination,
+        network: row.network,
+        status: row.status,
+        txHash: row.txHash,
+        requestedAt: row.requestedAt,
+        decidedAt: row.decidedAt,
+      })),
+      lifetime: {
+        minedNex: roundNex(balance.lifetimeMinedNex),
+        taskNex: roundNex(balance.lifetimeTaskNex),
+      },
+      nexUsdRate: config.nexUsdRate,
+    };
+  },
+});
+
+/**
+ * Deposit capability for this deployment. NEX is credited exclusively through
+ * verified backend activity (mining, tasks, referral bonuses), so external
+ * on-chain deposits stay disabled until dedicated deposit rails exist —
+ * reported by the backend, never faked in the UI.
+ */
+export const depositStatus = query({
+  args: {},
+  handler: async (ctx) => {
+    const { userId, profile, balance } = await getViewer(ctx);
+    if (!userId || !profile || !balance) return null;
+    const config = await loadConfig(ctx);
+
+    return {
+      enabled: false,
+      reason:
+        "External crypto deposits are not enabled on this deployment. NEX is credited only through verified mining activity, task rewards and referral bonuses recorded in the ledger.",
+      supportedAssets: [] as string[],
+      supportedNetworks: [] as string[],
+      sources: [
+        { kind: "mining", label: "Mining accrual" },
+        { kind: "task", label: "Verified task rewards" },
+        { kind: "referral", label: "Referral bonuses" },
+      ],
+      wallet: {
+        connected: Boolean(profile.walletAddress),
+        address: profile.walletAddress,
+        network: profile.walletNetwork,
+        app: profile.walletApp,
+        connectedAt: profile.walletConnectedAt,
+      },
+      reference: {
+        nexUsdRate: config.nexUsdRate,
+        tonUsdRate: config.tonUsdRate,
+      },
+      reservedNex: roundNex(balance.reservedNex),
+    };
+  },
+});
+
 /** Public campaigns for the task marketplace. */
 export const taskFeed = query({
   args: {},

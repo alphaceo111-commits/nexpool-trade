@@ -7,6 +7,7 @@ import { Component, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
 import {
+  ArrowDownToLine,
   ArrowUpRight,
   Ban,
   Check,
@@ -162,7 +163,7 @@ function Wallet() {
   return (
     <div className="space-y-3.5">
       <SectionHeading
-        index="04"
+        index="05"
         title="Wallet"
         body="Confirmed NEX, payout readiness and the on-chain TON link."
         action={
@@ -349,13 +350,21 @@ function Wallet() {
               </div>
             ))}
           </div>
-          <Link
-            to="/app/withdraw"
-            className="mt-3 flex h-9 items-center justify-center gap-1.5 rounded-sm bg-primary font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-primary-foreground transition-opacity hover:opacity-90"
-          >
-            {withdrawal.eligible ? "Request withdrawal" : "Review requirements"}
-            <ArrowUpRight className="size-3.5" />
-          </Link>
+          <div className="mt-3 grid grid-cols-2 gap-1.5">
+            <Link
+              to="/app/deposit"
+              className="flex h-9 items-center justify-center gap-1.5 rounded-sm border border-border font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-foreground transition-colors hover:border-primary/40"
+            >
+              <ArrowDownToLine className="size-3.5" /> Deposit
+            </Link>
+            <Link
+              to="/app/withdraw"
+              className="flex h-9 items-center justify-center gap-1.5 rounded-sm bg-primary font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-primary-foreground transition-opacity hover:opacity-90"
+            >
+              {withdrawal.eligible ? "Withdraw" : "Eligibility"}
+              <ArrowUpRight className="size-3.5" />
+            </Link>
+          </div>
           <p className="mt-2 text-center text-[9px] leading-relaxed text-muted-foreground">
             Eligibility is computed server-side. The operator still performs the
             final compliance and liquidity checks.
@@ -369,9 +378,12 @@ function Wallet() {
           eyebrow="Withdrawal history"
           title="Payout records"
           action={
-            <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
-              {withdrawal.history.length} records
-            </span>
+            <Link
+              to="/app/history"
+              className="flex items-center gap-1 font-mono text-[9px] uppercase tracking-[0.1em] text-primary"
+            >
+              History <ArrowUpRight className="size-3" />
+            </Link>
           }
           bodyClassName="p-0"
         >

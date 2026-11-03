@@ -92,7 +92,7 @@ export default function Mining() {
   return (
     <div className="space-y-3.5">
       <SectionHeading
-        index="01"
+        index="02"
         title="Mining engine"
         body="Server-calculated accrual, capped per UTC day."
         action={<StatusLabel status={mining.status} />}

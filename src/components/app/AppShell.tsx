@@ -12,8 +12,12 @@ import {
 } from "@/lib/telegram";
 import { useAction, useMutation, useQuery } from "convex/react";
 import {
+  ArrowDownToLine,
+  ArrowUpRight,
   Bell,
+  CircleHelp,
   Gauge,
+  History as HistoryIcon,
   LayoutDashboard,
   ListChecks,
   ShieldCheck,
@@ -24,13 +28,23 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router";
 
+/** The five primary tabs — the only items in the mobile bottom bar. */
 const NAV = [
   { to: "/app", label: "Home", icon: LayoutDashboard, end: true },
   { to: "/app/mining", label: "Mining", icon: Gauge, end: false },
   { to: "/app/tasks", label: "Tasks", icon: ListChecks, end: false },
   { to: "/app/referrals", label: "Referrals", icon: Users, end: false },
   { to: "/app/wallet", label: "Wallet", icon: Wallet, end: false },
-  { to: "/app/profile", label: "Profile", icon: UserRound, end: false },
+];
+
+/** Sections that open from Home, Wallet or Profile rather than the bottom bar. */
+const ACCOUNT_NAV = [
+  { to: "/app/deposit", label: "Deposit", icon: ArrowDownToLine },
+  { to: "/app/withdraw", label: "Withdraw", icon: ArrowUpRight },
+  { to: "/app/history", label: "History", icon: HistoryIcon },
+  { to: "/app/help", label: "Help & support", icon: CircleHelp },
+  { to: "/app/notifications", label: "Notifications", icon: Bell },
+  { to: "/app/profile", label: "Profile", icon: UserRound },
 ];
 
 const TITLES: Record<string, string> = {
@@ -39,7 +53,10 @@ const TITLES: Record<string, string> = {
   "/app/tasks": "Task centre",
   "/app/referrals": "Referral desk",
   "/app/wallet": "Wallet",
+  "/app/deposit": "Deposit",
   "/app/withdraw": "Withdraw",
+  "/app/history": "History",
+  "/app/help": "Help & support",
   "/app/profile": "Profile",
   "/app/notifications": "Notifications",
 };
@@ -91,7 +108,7 @@ function SidebarBody() {
         </div>
       </div>
 
-      <nav className="flex-1 space-y-0.5 p-2">
+      <nav className="flex-1 space-y-0.5 overflow-y-auto p-2">
         <p className="label-xs px-2 pt-2 pb-2">Mining account</p>
         {NAV.map((item) => (
           <NavLink
@@ -119,6 +136,34 @@ function SidebarBody() {
                 {isActive ? (
                   <span className="ml-auto size-1 bg-primary" aria-hidden="true" />
                 ) : null}
+              </>
+            )}
+          </NavLink>
+        ))}
+
+        <p className="label-xs px-2 pt-4 pb-2">Account</p>
+        {ACCOUNT_NAV.map((item) => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            className={({ isActive }) =>
+              cn(
+                "group relative flex items-center gap-2.5 rounded-sm border-l-2 px-3 py-2.5 font-mono text-[10.5px] uppercase tracking-[0.12em] transition-colors",
+                isActive
+                  ? "border-primary bg-sidebar-accent text-foreground"
+                  : "border-transparent text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+              )
+            }
+          >
+            {({ isActive }) => (
+              <>
+                <item.icon
+                  className={cn(
+                    "size-3.5",
+                    isActive ? "text-primary" : "text-muted-foreground",
+                  )}
+                />
+                {item.label}
               </>
             )}
           </NavLink>
@@ -312,6 +357,13 @@ export default function AppShell() {
                 </span>
               ) : null}
             </NavLink>
+            <NavLink
+              to="/app/profile"
+              aria-label="Profile"
+              className="flex size-8 items-center justify-center rounded-sm border border-border/80 font-mono text-[9px] font-semibold text-gold transition-colors hover:text-foreground lg:hidden"
+            >
+              {snapshot.account.displayName.slice(0, 2).toUpperCase()}
+            </NavLink>
           </div>
         </header>
 
@@ -324,7 +376,7 @@ export default function AppShell() {
         aria-label="Main navigation"
         className="fixed inset-x-0 bottom-0 z-40 border-t border-border/80 nav-blur bottom-nav lg:hidden"
       >
-        <div className="mx-auto grid max-w-lg grid-cols-6">
+        <div className="mx-auto grid max-w-lg grid-cols-5">
           {NAV.map((item) => (
             <NavLink
               key={item.to}

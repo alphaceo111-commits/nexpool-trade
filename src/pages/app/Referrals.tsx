@@ -54,7 +54,7 @@ export default function Referrals() {
   return (
     <div className="space-y-3.5">
       <SectionHeading
-        index="03"
+        index="04"
         title="Referral desk"
         body={`Only referrals with ${config.referralTaskTarget} verified tasks count toward withdrawal eligibility.`}
         action={

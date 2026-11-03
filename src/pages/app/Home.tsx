@@ -16,6 +16,7 @@ import {
   Wallet,
 } from "lucide-react";
 import {
+  formatDateTime,
   formatNex,
   formatUsd,
   initials,
@@ -126,6 +127,7 @@ export default function Home() {
     tasks,
     withdrawal,
     notifications,
+    ledger,
   } = snapshot;
 
   const usdValue = balance.totalNex * config.nexUsdRate;
@@ -294,9 +296,9 @@ export default function Home() {
         />
         <QuickAction
           icon={Wallet}
-          label="Withdraw"
-          hint={withdrawal.eligible ? "Eligible" : "View rules"}
-          to="/app/withdraw"
+          label="Wallet"
+          hint={withdrawal.eligible ? "Payout ready" : "Deposit · withdraw"}
+          to="/app/wallet"
         />
       </div>
 
@@ -497,6 +499,66 @@ export default function Home() {
           )}
         </Panel>
       </div>
+
+      <Panel
+        eyebrow="Recent activity"
+        title="Latest ledger entries"
+        action={
+          <Link
+            to="/app/history"
+            className="flex items-center gap-1 font-mono text-[9px] uppercase tracking-[0.1em] text-primary"
+          >
+            All <ChevronRight className="size-3" />
+          </Link>
+        }
+        bodyClassName="p-0"
+      >
+        {ledger.length === 0 ? (
+          <p className="px-4 py-5 text-center text-[11.5px] leading-relaxed text-muted-foreground">
+            Nothing posted yet. Mining accruals and verified rewards appear here
+            the moment the backend writes them.
+          </p>
+        ) : (
+          <ul className="divide-y divide-border/60">
+            {ledger.slice(0, 5).map((row) => (
+              <li key={row.id} className="flex items-center gap-2.5 px-4 py-2.5">
+                <span
+                  className={cn(
+                    "size-1.5 shrink-0 rounded-full",
+                    row.kind === "mining"
+                      ? "bg-primary"
+                      : row.kind === "task"
+                        ? "bg-up"
+                        : row.kind === "referral"
+                          ? "bg-gold"
+                          : row.kind === "withdrawal"
+                            ? "bg-warn"
+                            : "bg-muted-foreground",
+                  )}
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[11.5px] font-medium">{row.memo}</p>
+                  <p className="font-mono text-[8.5px] uppercase tracking-[0.1em] text-muted-foreground">
+                    {formatDateTime(row.createdAt)}
+                  </p>
+                </div>
+                <span
+                  className={cn(
+                    "num shrink-0 text-[11.5px] font-semibold",
+                    row.amountNex >= 0 ? "text-up" : "text-down",
+                  )}
+                >
+                  {row.amountNex >= 0 ? "+" : "−"}
+                  {Math.abs(row.amountNex).toFixed(4)}
+                  <span className="ml-0.5 font-mono text-[8px] text-muted-foreground">
+                    NEX
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Panel>
 
       <div className="flex items-start gap-2.5 rounded-md border border-border/70 bg-panel/60 px-3.5 py-3">
         <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" />

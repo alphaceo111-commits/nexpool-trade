@@ -17,7 +17,10 @@ const MiningPage = lazy(() => import("./pages/app/Mining"));
 const TasksPage = lazy(() => import("./pages/app/Tasks"));
 const ReferralsPage = lazy(() => import("./pages/app/Referrals"));
 const WalletPage = lazy(() => import("./pages/app/Wallet"));
+const DepositPage = lazy(() => import("./pages/app/Deposit"));
 const WithdrawPage = lazy(() => import("./pages/app/Withdraw"));
+const HistoryPage = lazy(() => import("./pages/app/History"));
+const HelpPage = lazy(() => import("./pages/app/Help"));
 const ProfilePage = lazy(() => import("./pages/app/Profile"));
 const NotificationsPage = lazy(() => import("./pages/app/Notifications"));
 const AdminPage = lazy(() => import("./pages/Admin"));
@@ -140,7 +143,10 @@ createRoot(document.getElementById("root")!).render(
                   <Route path="tasks" element={<TasksPage />} />
                   <Route path="referrals" element={<ReferralsPage />} />
                   <Route path="wallet" element={<WalletPage />} />
+                  <Route path="deposit" element={<DepositPage />} />
                   <Route path="withdraw" element={<WithdrawPage />} />
+                  <Route path="history" element={<HistoryPage />} />
+                  <Route path="help" element={<HelpPage />} />
                   <Route path="profile" element={<ProfilePage />} />
                   <Route path="notifications" element={<NotificationsPage />} />
                 </Route>

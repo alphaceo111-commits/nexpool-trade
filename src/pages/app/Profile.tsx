@@ -145,7 +145,7 @@ function ProfileView({ snapshot }: { snapshot: Snapshot }) {
   return (
     <div className="space-y-3.5">
       <SectionHeading
-        index="06"
+        index="09"
         title="Profile & settings"
         body="Account identity, notification routing, policies and support."
       />
@@ -454,6 +454,30 @@ function ProfileView({ snapshot }: { snapshot: Snapshot }) {
           </p>
         </Panel>
       </div>
+
+      <Panel eyebrow="Sections" title="Wallet & support shortcuts">
+        <div className="grid gap-1 sm:grid-cols-3">
+          {[
+            { to: "/app/deposit", label: "Deposit", hint: "How NEX is credited" },
+            { to: "/app/history", label: "History", hint: "Ledger and payouts" },
+            { to: "/app/help", label: "Help & support", hint: "Rules and FAQ" },
+          ].map((item) => (
+            <Link
+              key={item.to}
+              to={item.to}
+              className="flex items-center justify-between gap-2 rounded-sm border border-border/70 px-2.5 py-2 transition-colors hover:border-primary/40 hover:bg-secondary/40"
+            >
+              <span className="min-w-0">
+                <span className="block text-[12px] font-medium">{item.label}</span>
+                <span className="block font-mono text-[8.5px] uppercase tracking-[0.1em] text-muted-foreground">
+                  {item.hint}
+                </span>
+              </span>
+              <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
+            </Link>
+          ))}
+        </div>
+      </Panel>
 
       <Panel eyebrow="Security" title="Session and access">
         <div className="space-y-2">

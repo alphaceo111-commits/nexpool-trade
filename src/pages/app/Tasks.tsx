@@ -175,7 +175,7 @@ export default function Tasks() {
   return (
     <div className="space-y-3.5">
       <SectionHeading
-        index="02"
+        index="03"
         title="Task centre"
         body="Rewards and speed bonuses land only after server-side verification."
         action={
