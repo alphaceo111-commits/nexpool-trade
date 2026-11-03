@@ -1,0 +1,17 @@
+{
+  "name": "NEXPOOL — Verified NEX Mining",
+  "short_name": "NEXPOOL",
+  "description": "Server-calculated NEX mining, verified sponsor tasks, referral qualification and TON payouts.",
+  "start_url": "/app",
+  "display": "standalone",
+  "background_color": "#0b0d10",
+  "theme_color": "#0b0d10",
+  "icons": [
+    {
+      "src": "/logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
