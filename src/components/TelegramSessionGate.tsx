@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { api } from "@/convex/_generated/api";
 import { getTelegram, initTelegram } from "@/lib/telegram";
 import { useAuthActions } from "@convex-dev/auth/react";
-import { useConvexAuth, useQuery } from "convex/react";
+import { useAction, useConvexAuth, useQuery } from "convex/react";
 import { Loader2 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
@@ -28,6 +28,7 @@ export function TelegramSessionGate({ children }: { children: ReactNode }) {
   const { isLoading, isAuthenticated } = useConvexAuth();
   const user = useQuery(api.users.currentUser);
   const { signIn } = useAuthActions();
+  const linkTelegram = useAction(api.telegram.linkTelegram);
   const attempted = useRef<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -57,7 +58,22 @@ export function TelegramSessionGate({ children }: { children: ReactNode }) {
     setStep(initData ? 1 : 0);
     const timer = window.setTimeout(() => setStep(2), 700);
     const flow = initData
-      ? signIn("telegram", { initData })
+      ? signIn("telegram", { initData }).then(async () => {
+          // The auth provider creates the user; this action writes the verified
+          // Telegram profile (name, @handle, avatar, chat id) onto the NEXPOOL
+          // account. Retried briefly while the fresh session propagates.
+          for (let attemptIndex = 0; attemptIndex < 5; attemptIndex += 1) {
+            try {
+              const result = await linkTelegram({ initData });
+              if (result.linked) return;
+            } catch {
+              /* session may not be visible to the next request yet */
+            }
+            await new Promise((resolve) =>
+              window.setTimeout(resolve, 400 * (attemptIndex + 1)),
+            );
+          }
+        })
       : signIn("anonymous");
 
     flow
@@ -71,7 +87,7 @@ export function TelegramSessionGate({ children }: { children: ReactNode }) {
       .finally(() => window.clearTimeout(timer));
 
     return () => window.clearTimeout(timer);
-  }, [isLoading, isAuthenticated, user, attempt, signIn]);
+  }, [isLoading, isAuthenticated, user, attempt, signIn, linkTelegram]);
 
   if (error) {
     return (

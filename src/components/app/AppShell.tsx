@@ -184,8 +184,17 @@ function SidebarBody() {
 
       <div className="border-t border-sidebar-border p-2">
         <div className="flex items-center gap-2 px-1 py-1">
-          <div className="flex size-8 items-center justify-center border border-sidebar-border bg-panel font-mono text-[10px] font-semibold text-gold">
-            {snapshot?.account.displayName.slice(0, 2).toUpperCase() ?? "NX"}
+          <div className="flex size-8 shrink-0 items-center justify-center overflow-hidden border border-sidebar-border bg-panel font-mono text-[10px] font-semibold text-gold">
+            {snapshot?.account.photoUrl ? (
+              <img
+                src={snapshot.account.photoUrl}
+                alt={snapshot.account.displayName}
+                referrerPolicy="no-referrer"
+                className="size-full object-cover"
+              />
+            ) : (
+              (snapshot?.account.displayName.slice(0, 2).toUpperCase() ?? "NX")
+            )}
           </div>
           <div className="min-w-0 flex-1">
             <p className="truncate text-[11.5px] font-medium">
@@ -255,11 +264,32 @@ export default function AppShell() {
     };
   }, [settle]);
 
+  // Keeps the NEXPOOL profile bound to the verified Telegram identity. It
+  // retries while the session settles and stops as soon as the snapshot reports
+  // a linked telegramId, so name, @handle and avatar always come from Telegram.
+  const telegramLinked = snapshot?.account.telegramLinked ?? false;
   useEffect(() => {
+    if (telegramLinked) return;
     const initData = getTelegram()?.initData;
     if (!initData) return;
-    linkTelegram({ initData }).catch(() => undefined);
-  }, [linkTelegram]);
+    let cancelled = false;
+    let tries = 0;
+    const attempt = async () => {
+      tries += 1;
+      try {
+        await linkTelegram({ initData });
+      } catch {
+        /* session not visible to the action yet */
+      }
+      if (!cancelled && tries < 5) {
+        window.setTimeout(attempt, 500 * tries);
+      }
+    };
+    void attempt();
+    return () => {
+      cancelled = true;
+    };
+  }, [linkTelegram, telegramLinked]);
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
@@ -360,9 +390,18 @@ export default function AppShell() {
             <NavLink
               to="/app/profile"
               aria-label="Profile"
-              className="flex size-8 items-center justify-center rounded-sm border border-border/80 font-mono text-[9px] font-semibold text-gold transition-colors hover:text-foreground lg:hidden"
+              className="flex size-8 items-center justify-center overflow-hidden rounded-sm border border-border/80 font-mono text-[9px] font-semibold text-gold transition-colors hover:text-foreground lg:hidden"
             >
-              {snapshot.account.displayName.slice(0, 2).toUpperCase()}
+              {snapshot.account.photoUrl ? (
+                <img
+                  src={snapshot.account.photoUrl}
+                  alt={snapshot.account.displayName}
+                  referrerPolicy="no-referrer"
+                  className="size-full object-cover"
+                />
+              ) : (
+                snapshot.account.displayName.slice(0, 2).toUpperCase()
+              )}
             </NavLink>
           </div>
         </header>
