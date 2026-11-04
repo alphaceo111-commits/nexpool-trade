@@ -147,6 +147,7 @@ export const telegramAuth = ConvexCredentials({
     // Owner ids may be provided under either name; both accept a comma or
     // space separated list.
     const ownerIds = (
+      process.env.ADMIN_TELEGRAM_ID ??
       process.env.TELEGRAM_ADMIN_ID ??
       process.env.TELEGRAM_OWNER_ID ??
       ""

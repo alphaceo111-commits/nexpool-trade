@@ -49,7 +49,7 @@ const FAQ = [
   },
   {
     q: "Can I deposit crypto?",
-    a: "No. This deployment credits NEX only through verified mining, task and referral activity recorded by the backend ledger. There is no deposit address.",
+    a: "Yes, when TON deposits are open. The Deposit section locks a 30-minute quote and shows the treasury address plus a required payment reference (memo). NEX is credited only after the backend verifies the transfer on-chain. If the operator has not configured the treasury wallet, the section reports deposits offline and issues no address.",
   },
 ];
 

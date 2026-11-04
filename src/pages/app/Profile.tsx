@@ -458,7 +458,7 @@ function ProfileView({ snapshot }: { snapshot: Snapshot }) {
       <Panel eyebrow="Sections" title="Wallet & support shortcuts">
         <div className="grid gap-1 sm:grid-cols-3">
           {[
-            { to: "/app/deposit", label: "Deposit", hint: "How NEX is credited" },
+            { to: "/app/deposit", label: "Deposit", hint: "Buy NEX with TON" },
             { to: "/app/history", label: "History", hint: "Ledger and payouts" },
             { to: "/app/help", label: "Help & support", hint: "Rules and FAQ" },
           ].map((item) => (

@@ -61,7 +61,11 @@ http.route({
       source: "telegram",
     });
 
-    const appUrl = process.env.APP_ORIGIN ?? process.env.CONVEX_SITE_URL;
+    const appUrl =
+      process.env.MINI_APP_URL ??
+      process.env.APP_ORIGIN ??
+      process.env.SITE_URL ??
+      process.env.CONVEX_SITE_URL;
     const token = process.env.TELEGRAM_BOT_TOKEN;
     if (token && chatId) {
       try {
@@ -108,11 +112,20 @@ http.route({
         refererOrigin = null;
       }
     }
+    const configured = (() => {
+      try {
+        return new URL(
+          process.env.MINI_APP_URL ??
+            process.env.APP_ORIGIN ??
+            process.env.SITE_URL ??
+            "https://nexpool.app",
+        ).origin;
+      } catch {
+        return "https://nexpool.app";
+      }
+    })();
     const origin =
-      request.headers.get("origin") ??
-      refererOrigin ??
-      process.env.APP_ORIGIN ??
-      "https://nexpool.app";
+      request.headers.get("origin") ?? refererOrigin ?? configured;
     const body = {
       url: origin,
       name: "NEXPOOL",

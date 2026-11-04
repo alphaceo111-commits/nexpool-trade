@@ -231,6 +231,7 @@ const schema = defineSchema(
         v.literal("task"),
         v.literal("referral"),
         v.literal("withdrawal"),
+        v.literal("deposit"),
         v.literal("refund"),
         v.literal("adjustment"),
       ),
@@ -330,6 +331,37 @@ const schema = defineSchema(
       .index("by_user_requestedAt", ["userId", "requestedAt"])
       .index("by_status", ["status"])
       .index("by_requestedAt", ["requestedAt"]),
+
+    // TON deposit intents. An intent locks a quote and a memo; NEX is only
+    // credited after a matching on-chain payment is verified by the backend.
+    deposits: defineTable({
+      userId: v.id("users"),
+      nexId: v.string(),
+      memo: v.string(),
+      address: v.string(),
+      tonAmount: v.number(),
+      nanoAmount: v.string(),
+      quotedNex: v.number(),
+      nexUsdRate: v.number(),
+      tonUsdRate: v.number(),
+      status: v.union(
+        v.literal("pending"),
+        v.literal("confirmed"),
+        v.literal("failed"),
+      ),
+      txHash: v.optional(v.string()),
+      receivedTon: v.optional(v.number()),
+      creditedNex: v.optional(v.number()),
+      paidAt: v.optional(v.number()),
+      verifiedAt: v.optional(v.number()),
+      note: v.optional(v.string()),
+      createdAt: v.number(),
+      expiresAt: v.number(),
+    })
+      .index("by_user_createdAt", ["userId", "createdAt"])
+      .index("by_status", ["status"])
+      .index("by_memo", ["memo"])
+      .index("by_txHash", ["txHash"]),
 
     // In-app + Telegram notification feed (one row per recipient).
     notifications: defineTable({

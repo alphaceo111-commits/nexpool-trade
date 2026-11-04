@@ -4,6 +4,11 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { action, internalMutation, mutation, query } from "./_generated/server";
 import { audit, computeSpeed, dayKey, loadConfig, roundNex } from "./engine";
+import {
+  MIN_DEPOSIT_TON,
+  isValidTonAddress,
+  treasuryAddress,
+} from "./payments";
 
 const BOT_KEY = "default";
 const UNITS = { BTC: "BTC", LTC: "LTC", KAS: "KAS", ETC: "ETC" } as const;
@@ -420,13 +425,25 @@ function buildUserReply(
           : "No TON wallet linked yet — connect one in the app.",
       ].join("\n");
       break;
-    case "/deposit":
-      body = [
-        head,
-        "External deposits are not enabled on this deployment.",
-        "NEX is credited only through verified mining, task rewards and referral bonuses — always from the backend ledger.",
-      ].join("\n");
+    case "/deposit": {
+      const address = treasuryAddress();
+      body =
+        address && isValidTonAddress(address)
+          ? [
+              head,
+              "Buy NEX with TON from Telegram Wallet.",
+              `Treasury ${address.slice(0, 6)}…${address.slice(-6)} · TON mainnet`,
+              `Minimum ${MIN_DEPOSIT_TON} TON per deposit.`,
+              "Open the app to lock a quote and get your payment reference. The TON transfer must include that reference.",
+              "NEX is credited automatically after the backend verifies the transfer on-chain.",
+            ].join("\n")
+          : [
+              head,
+              "Deposits are offline until the operator configures the TON treasury wallet.",
+              "Open the app for the current deposit status.",
+            ].join("\n");
       break;
+    }
     case "/withdraw": {
       const liquidityOk = account.treasuryAvailableUsd >= account.minWithdrawUsd;
       body = [
@@ -461,7 +478,7 @@ function buildUserReply(
         "/tasks    available and in-review tasks",
         "/referral your invite link and qualification",
         "/wallet   balances, payouts, destination wallet",
-        "/deposit  how NEX is credited",
+        "/deposit  buy NEX with TON",
         "/withdraw eligibility snapshot",
         "/history  recent ledger entries",
         "/terms    rules summary",
@@ -577,7 +594,11 @@ export const handleIncoming = internalMutation({
         args.chatId,
         user,
         args.text,
-        process.env.APP_ORIGIN ?? process.env.CONVEX_SITE_URL ?? "",
+        process.env.MINI_APP_URL ??
+          process.env.APP_ORIGIN ??
+          process.env.SITE_URL ??
+          process.env.CONVEX_SITE_URL ??
+          "",
       );
       reply = built.text;
       openApp = built.openApp;

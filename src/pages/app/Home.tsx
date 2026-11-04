@@ -527,13 +527,15 @@ export default function Home() {
                     "size-1.5 shrink-0 rounded-full",
                     row.kind === "mining"
                       ? "bg-primary"
-                      : row.kind === "task"
-                        ? "bg-up"
-                        : row.kind === "referral"
-                          ? "bg-gold"
-                          : row.kind === "withdrawal"
-                            ? "bg-warn"
-                            : "bg-muted-foreground",
+                      : row.kind === "deposit"
+                        ? "bg-gold"
+                        : row.kind === "task"
+                          ? "bg-up"
+                          : row.kind === "referral"
+                            ? "bg-gold"
+                            : row.kind === "withdrawal"
+                              ? "bg-warn"
+                              : "bg-muted-foreground",
                   )}
                 />
                 <div className="min-w-0 flex-1">

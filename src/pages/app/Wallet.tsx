@@ -1,9 +1,7 @@
 import { api } from "@/convex/_generated/api";
-import { TonConnectUIProvider, useTonConnectUI, useTonWallet } from "@tonconnect/ui-react";
-import type { ReactNode } from "react";
-import { TON_MANIFEST_URL } from "@/lib/ton";
+import { useTonConnectUI, useTonWallet } from "@tonconnect/ui-react";
 import { useMutation, useQuery } from "convex/react";
-import { Component, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
 import {
@@ -32,6 +30,7 @@ import {
   Spinner,
   StatusPill,
 } from "@/components/app/parts";
+import { TonConnectShell } from "@/components/app/TonConnectShell";
 import { Button } from "@/components/ui/button";
 import { TON_EXPLORER_ADDRESS, TON_EXPLORER_TX } from "@/lib/ton";
 import { cn } from "@/lib/utils";
@@ -52,45 +51,11 @@ function shortAddress(address: string) {
   return `${address.slice(0, 6)}…${address.slice(-6)}`;
 }
 
-/** Isolates the wallet SDK so a provider failure cannot blank the whole app. */
-class WalletSdkBoundary extends Component<
-  { children: ReactNode },
-  { failed: boolean }
-> {
-  state = { failed: false };
-  static getDerivedStateFromError() {
-    return { failed: true };
-  }
-  render() {
-    if (this.state.failed) {
-      return (
-        <div className="rounded-md border border-warn/40 bg-warn/[0.05] p-4">
-          <p className="text-[12.5px] font-medium">TON Connect unavailable</p>
-          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-            The wallet SDK could not start in this client. Balances and withdrawal
-            eligibility remain readable; reopen the app or use a Telegram or
-            browser client that supports TON Connect.
-          </p>
-          <Link
-            to="/app"
-            className="mt-2 inline-block font-mono text-[9px] uppercase tracking-[0.1em] text-primary"
-          >
-            Back to dashboard
-          </Link>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
-
 export default function WalletPage() {
   return (
-    <WalletSdkBoundary>
-      <TonConnectUIProvider manifestUrl={TON_MANIFEST_URL}>
-        <Wallet />
-      </TonConnectUIProvider>
-    </WalletSdkBoundary>
+    <TonConnectShell>
+      <Wallet />
+    </TonConnectShell>
   );
 }
 
@@ -462,13 +427,14 @@ function Wallet() {
           )}
         </Panel>
 
-        <Panel className="lg:col-span-5" eyebrow="Deposits" title="Not enabled">
+        <Panel className="lg:col-span-5" eyebrow="TON deposits" title="On-chain settlement">
           <div className="flex items-start gap-2.5 rounded-sm border border-border/70 bg-panel/50 p-3">
             <Info className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
             <p className="text-[11px] leading-relaxed text-muted-foreground">
-              NEXPOOL is earned, not sold. There is no deposit address, no token
-              purchase and no top-up flow. NEX comes from confirmed mining accrual
-              and verified sponsor tasks.
+              TON paid from Telegram Wallet goes to the NEXPOOL treasury. NEX is
+              credited only after the backend verifies the transfer on-chain and
+              matches its payment reference — never from a screenshot or claim.
+              Open Deposit to lock a quote or check the current capability.
             </p>
           </div>
           <div className="mt-3 flex items-start gap-2 rounded-sm border border-border/70 bg-panel/50 p-3">

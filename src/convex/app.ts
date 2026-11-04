@@ -405,6 +405,7 @@ export const history = query({
         v.literal("task"),
         v.literal("referral"),
         v.literal("withdrawal"),
+        v.literal("deposit"),
         v.literal("refund"),
         v.literal("adjustment"),
       ),
@@ -459,46 +460,6 @@ export const history = query({
         taskNex: roundNex(balance.lifetimeTaskNex),
       },
       nexUsdRate: config.nexUsdRate,
-    };
-  },
-});
-
-/**
- * Deposit capability for this deployment. NEX is credited exclusively through
- * verified backend activity (mining, tasks, referral bonuses), so external
- * on-chain deposits stay disabled until dedicated deposit rails exist —
- * reported by the backend, never faked in the UI.
- */
-export const depositStatus = query({
-  args: {},
-  handler: async (ctx) => {
-    const { userId, profile, balance } = await getViewer(ctx);
-    if (!userId || !profile || !balance) return null;
-    const config = await loadConfig(ctx);
-
-    return {
-      enabled: false,
-      reason:
-        "External crypto deposits are not enabled on this deployment. NEX is credited only through verified mining activity, task rewards and referral bonuses recorded in the ledger.",
-      supportedAssets: [] as string[],
-      supportedNetworks: [] as string[],
-      sources: [
-        { kind: "mining", label: "Mining accrual" },
-        { kind: "task", label: "Verified task rewards" },
-        { kind: "referral", label: "Referral bonuses" },
-      ],
-      wallet: {
-        connected: Boolean(profile.walletAddress),
-        address: profile.walletAddress,
-        network: profile.walletNetwork,
-        app: profile.walletApp,
-        connectedAt: profile.walletConnectedAt,
-      },
-      reference: {
-        nexUsdRate: config.nexUsdRate,
-        tonUsdRate: config.tonUsdRate,
-      },
-      reservedNex: roundNex(balance.reservedNex),
     };
   },
 });
