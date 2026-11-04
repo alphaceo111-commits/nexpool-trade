@@ -138,7 +138,7 @@ export const overview = query({
         miningEnabled: config.miningEnabled,
         withdrawalsEnabled: config.withdrawalsEnabled,
         telegramBotConfigured: Boolean(process.env.TELEGRAM_BOT_TOKEN),
-        webhookSecretConfigured: Boolean(process.env.TELEGRAM_WEBHOOK_SECRET),
+        webhookSecretConfigured: Boolean(process.env.TELEGRAM_BOT_TOKEN),
         adProviderConfigured: Boolean(
           process.env.AD_PROVIDER_VERIFY_URL && process.env.AD_PROVIDER_API_KEY,
         ),

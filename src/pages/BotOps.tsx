@@ -395,10 +395,8 @@ export default function BotOps() {
                   </span>
                 </li>
                 <li className="flex items-center justify-between gap-2">
-                  <span className="text-foreground/80">TELEGRAM_WEBHOOK_SECRET</span>
-                  <span className={data.secretRequired ? "text-up" : "text-muted-foreground"}>
-                    {data.secretRequired ? "SET" : "OPTIONAL"}
-                  </span>
+                  <span className="text-foreground/80">Webhook authentication</span>
+                  <span className="text-up">DERIVED</span>
                 </li>
                 <li className="flex items-center justify-between gap-2">
                   <span className="text-foreground/80">TELEGRAM_BOT_USERNAME</span>
@@ -407,9 +405,9 @@ export default function BotOps() {
               </ul>
               <p className="mt-2 border border-border bg-background px-2 py-2 font-mono text-[10px] leading-relaxed text-muted-foreground">
                 Keys live in the project&apos;s Keys tab. <b>Register webhook</b>{" "}
-                calls Telegram&apos;s setWebhook with the endpoint above and the
-                configured secret token, then writes an audit entry. Re-running
-                it is safe.
+                calls Telegram&apos;s setWebhook with the endpoint above and a
+                secret derived from the bot token, then writes an audit entry.
+                Re-running it is safe.
               </p>
             </div>
           </Panel>

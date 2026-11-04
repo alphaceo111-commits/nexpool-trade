@@ -9,6 +9,7 @@ import {
   isValidTonAddress,
   treasuryAddress,
 } from "./payments";
+import { telegramWebhookSecret } from "./telegramWebhook";
 
 const BOT_KEY = "default";
 const UNITS = { BTC: "BTC", LTC: "LTC", KAS: "KAS", ETC: "ETC" } as const;
@@ -657,7 +658,7 @@ export const overview = query({
       configured: Boolean(process.env.TELEGRAM_BOT_TOKEN),
       botUsername: process.env.TELEGRAM_BOT_USERNAME ?? "@nexpool_desk_bot",
       webhookUrl: siteUrl ? `${siteUrl}/telegram/webhook` : "",
-      secretRequired: Boolean(process.env.TELEGRAM_WEBHOOK_SECRET),
+      secretRequired: Boolean(process.env.TELEGRAM_BOT_TOKEN),
       messages: [...messages].reverse(),
     };
   },
@@ -728,9 +729,9 @@ export const recordWebhookRegistration = internalMutation({
 });
 
 /**
- * Points Telegram at this deployment's webhook with the configured secret, so
- * bot commands and verification callbacks actually reach the engine. Run it
- * once from the operator console; re-running is idempotent on Telegram's side.
+ * Points Telegram at this deployment's webhook with a secret derived from the
+ * bot token, so commands actually reach the engine without a separate secret.
+ * Run it from the operator console; re-running is idempotent on Telegram's side.
  */
 export const registerWebhook = action({
   args: {},
@@ -749,13 +750,18 @@ export const registerWebhook = action({
     }
 
     const url = `${siteUrl}/telegram/webhook`;
-    const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
+    const secret = await telegramWebhookSecret();
+    if (!secret) {
+      throw new Error(
+        "Could not derive a webhook secret from TELEGRAM_BOT_TOKEN.",
+      );
+    }
     const body: Record<string, unknown> = {
       url,
       allowed_updates: ["message", "edited_message"],
       drop_pending_updates: false,
+      secret_token: secret,
     };
-    if (secret) body.secret_token = secret;
 
     const response = await fetch(
       `https://api.telegram.org/bot${token}/setWebhook`,
@@ -778,8 +784,8 @@ export const registerWebhook = action({
 
     await ctx.runMutation(internal.bot.recordWebhookRegistration, {
       url,
-      detail: secret ? "secret token attached" : "no secret token configured",
+      detail: "derived secret token attached",
     });
-    return { url, secretRequired: Boolean(secret) };
+    return { url, secretRequired: true };
   },
 });

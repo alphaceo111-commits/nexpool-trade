@@ -9,9 +9,11 @@ export function BrandMark({ className }: { className?: string }) {
       aria-hidden="true"
     >
       <rect x="0.5" y="0.5" width="27" height="27" stroke="currentColor" opacity="0.35" />
-      <rect x="5" y="15" width="4" height="8" fill="currentColor" />
-      <rect x="12" y="10" width="4" height="13" fill="currentColor" opacity="0.7" />
-      <rect x="19" y="5" width="4" height="18" fill="currentColor" />
+      <rect x="5" y="15" width="4" height="8" rx="0.6" fill="currentColor" />
+      <rect x="12" y="10" width="4" height="13" rx="0.6" fill="currentColor" opacity="0.65" />
+      <rect x="19" y="5" width="4" height="18" rx="0.6" fill="currentColor" />
+      <circle cx="21" cy="3.1" r="1" fill="currentColor" />
+      <path d="M5 25.2h18" stroke="currentColor" strokeOpacity="0.3" strokeWidth="0.8" strokeLinecap="round" />
     </svg>
   );
 }

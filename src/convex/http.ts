@@ -2,6 +2,7 @@ import { httpRouter } from "convex/server";
 import { auth } from "./auth";
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
+import { telegramWebhookSecret } from "./telegramWebhook";
 
 const http = httpRouter();
 
@@ -21,15 +22,18 @@ http.route({
 
 /**
  * Telegram webhook. Point the bot at this URL with setWebhook.
- * Requires TELEGRAM_BOT_TOKEN in the Convex environment; optionally
- * TELEGRAM_WEBHOOK_SECRET to verify Telegram's secret header.
+ * The secret header is derived from TELEGRAM_BOT_TOKEN so it is always a
+ * Telegram-legal token and no extra secret has to be provisioned.
  */
 http.route({
   path: "/telegram/webhook",
   method: "POST",
   handler: httpAction(async (ctx, request) => {
-    const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
-    if (secret && request.headers.get("x-telegram-bot-api-secret-token") !== secret) {
+    const secret = await telegramWebhookSecret();
+    if (
+      !secret ||
+      request.headers.get("x-telegram-bot-api-secret-token") !== secret
+    ) {
       return new Response("unauthorized", { status: 401 });
     }
 
@@ -61,11 +65,17 @@ http.route({
       source: "telegram",
     });
 
-    const appUrl =
+    const configuredAppUrl =
       process.env.MINI_APP_URL ??
       process.env.APP_ORIGIN ??
       process.env.SITE_URL ??
       process.env.CONVEX_SITE_URL;
+    // Telegram rejects the whole message if a web_app button has a non-HTTPS
+    // URL, which would make the bot look silent. Only attach a valid button.
+    const appUrl =
+      configuredAppUrl && configuredAppUrl.startsWith("https://")
+        ? configuredAppUrl
+        : null;
     const token = process.env.TELEGRAM_BOT_TOKEN;
     if (token && chatId) {
       try {
@@ -81,11 +91,25 @@ http.route({
             ],
           };
         }
-        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(payload),
-        });
+        const send = () =>
+          fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+        let response = await send();
+        if (!response.ok && payload.reply_markup) {
+          // A rejected button must not swallow the actual reply.
+          delete payload.reply_markup;
+          response = await send();
+        }
+        if (!response.ok) {
+          console.error(
+            "Telegram sendMessage failed",
+            response.status,
+            await response.text(),
+          );
+        }
       } catch (error) {
         console.error("Telegram sendMessage failed", error);
       }
@@ -129,7 +153,7 @@ http.route({
     const body = {
       url: origin,
       name: "NEXPOOL",
-      iconUrl: `${origin}/logo.svg`,
+      iconUrl: `${origin}/icon-512.png`,
     };
     return new Response(JSON.stringify(body), {
       status: 200,

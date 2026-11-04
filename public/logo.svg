@@ -1,1 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 96.81 96.81"><rect width="96.81" height="96.81" rx="18"/><g fill="#fff"><rect x="24.67" y="24.67" width="47.47" height="11.87"/><rect x="24.67" y="36.54" width="11.87" height="35.61"/><rect x="40.06" y="39.98" width="23.74" height="11.87"/><rect x="40.06" y="51.85" width="11.87" height="20.3"/></g></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="NEXPOOL">
+  <rect width="512" height="512" rx="112" fill="#0B0D10"/>
+  <rect x="32" y="32" width="448" height="448" rx="96" fill="none" stroke="#D8FF3E" stroke-opacity="0.16" stroke-width="5"/>
+  <g fill="#D8FF3E">
+    <rect x="112" y="288" width="72" height="128" rx="12"/>
+    <rect x="220" y="208" width="72" height="208" rx="12" opacity="0.55"/>
+    <rect x="328" y="116" width="72" height="300" rx="12"/>
+  </g>
+  <circle cx="364" cy="92" r="14" fill="#D8FF3E"/>
+  <path d="M112 440H400" stroke="#D8FF3E" stroke-opacity="0.30" stroke-width="6" stroke-linecap="round"/>
+</svg>
