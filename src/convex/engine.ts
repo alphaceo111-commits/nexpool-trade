@@ -39,7 +39,8 @@ export type AppConfigShape = {
 export const CONFIG_DEFAULTS: AppConfigShape = {
   // Launch rate: 0.000000500 NEX/hour, i.e. 500,000 nano-NEX per hour.
   baseRateNexPerHour: 0.0000005,
-  dailyLimitNex: 2,
+  // Matches the nano-NEX scale of the launch rate: 0.00005 NEX per UTC day.
+  dailyLimitNex: 0.00005,
   nexUsdRate: 2.5,
   tonUsdRate: 5.2,
   minWithdrawNex: 1,

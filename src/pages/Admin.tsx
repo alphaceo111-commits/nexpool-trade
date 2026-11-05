@@ -711,6 +711,7 @@ function EconomyForm({ config }: { config: AdminConfig }) {
               <NumberInput
                 value={form.dailyLimitNex}
                 onChange={(value) => set("dailyLimitNex", value)}
+                step="any"
               />
             </Field>
             <Field label="NEX target (USD)" hint="Published reference, not a liquidity promise.">

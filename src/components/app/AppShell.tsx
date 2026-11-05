@@ -47,6 +47,7 @@ const ACCOUNT_NAV = [
   { to: "/app/help", label: "Help & support", icon: CircleHelp },
   { to: "/app/notifications", label: "Notifications", icon: Bell },
   { to: "/app/profile", label: "Profile", icon: UserRound },
+  { to: "/admin", label: "Operator console", icon: ShieldCheck },
 ];
 
 const TITLES: Record<string, string> = {
@@ -172,17 +173,6 @@ function SidebarBody() {
           </NavLink>
         ))}
 
-        {snapshot?.account.isAdmin ? (
-          <div className="mt-4 border-t border-sidebar-border pt-3">
-            <p className="label-xs px-2 pb-2">Operator</p>
-            <NavLink
-              to="/admin"
-              className="flex items-center gap-2.5 rounded-sm px-3 py-2.5 font-mono text-[10.5px] uppercase tracking-[0.12em] text-warn transition-colors hover:bg-sidebar-accent/60"
-            >
-              <ShieldCheck className="size-3.5" /> Admin console
-            </NavLink>
-          </div>
-        ) : null}
       </nav>
 
       <div className="border-t border-sidebar-border p-2">

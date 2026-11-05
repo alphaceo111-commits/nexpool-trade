@@ -18,6 +18,28 @@ export const publishStarterMissions = internalMutation({
   },
 });
 
+/** Lowers the persisted UTC-day mining cap to the nano-NEX launch scale. */
+export const applyDailyLimit = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const row = await ctx.db
+      .query("appConfig")
+      .withIndex("by_key", (q) => q.eq("key", CONFIG_KEY))
+      .first();
+    if (!row) return { patched: false };
+    await ctx.db.patch(row._id, {
+      dailyLimitNex: CONFIG_DEFAULTS.dailyLimitNex,
+      updatedAt: Date.now(),
+      updatedBy: "nexpool-seed",
+    });
+    return {
+      patched: true,
+      previous: row.dailyLimitNex,
+      dailyLimitNex: CONFIG_DEFAULTS.dailyLimitNex,
+    };
+  },
+});
+
 /** Seeds the ladder, the sponsored bot campaigns and any missing task XP. */
 export const applyProgression = internalMutation({
   args: {},

@@ -499,17 +499,18 @@ function ProfileView({ snapshot }: { snapshot: Snapshot }) {
             </span>
           </div>
         </div>
-        {account.isAdmin ? (
-          <Link
-            to="/admin"
-            className="mt-3 flex items-center justify-between rounded-sm border border-warn/40 bg-warn/[0.05] px-2.5 py-2"
-          >
-            <span className="flex items-center gap-2 font-mono text-[9.5px] uppercase tracking-[0.1em] text-warn">
-              <ShieldCheck className="size-3.5" /> Operator console
-            </span>
-            <ChevronRight className="size-3.5 text-warn" />
-          </Link>
-        ) : null}
+        <Link
+          to="/admin"
+          className="mt-3 flex items-center justify-between rounded-sm border border-warn/40 bg-warn/[0.05] px-2.5 py-2"
+        >
+          <span className="flex items-center gap-2 font-mono text-[9.5px] uppercase tracking-[0.1em] text-warn">
+            <ShieldCheck className="size-3.5" /> Operator console
+            {account.isAdmin ? null : (
+              <span className="text-muted-foreground">· not claimed</span>
+            )}
+          </span>
+          <ChevronRight className="size-3.5 text-warn" />
+        </Link>
         <p className="mt-3 font-mono text-[9px] leading-relaxed uppercase tracking-[0.1em] text-muted-foreground">
           This session is tied to your Telegram account. Close the mini app to
           end it — reopening returns you to the same NEXPOOL account.

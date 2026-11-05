@@ -343,8 +343,8 @@ export const updateConfig = mutation({
     if (args.baseRateNexPerHour < 0 || args.baseRateNexPerHour > 50) {
       throw new Error("Base rate must be between 0 and 50 NEX/h.");
     }
-    if (args.dailyLimitNex < 0.01 || args.dailyLimitNex > 1000) {
-      throw new Error("Daily cap must be between 0.01 and 1,000 NEX.");
+    if (!(args.dailyLimitNex > 0) || args.dailyLimitNex > 1000) {
+      throw new Error("Daily cap must be greater than 0 and at most 1,000 NEX.");
     }
     if (args.nexUsdRate < 0.01 || args.nexUsdRate > 1000) {
       throw new Error("NEX reference rate must be between $0.01 and $1,000.");
