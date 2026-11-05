@@ -1,7 +1,7 @@
 import { api } from "@/convex/_generated/api";
 import type { FunctionReturnType } from "convex/server";
 import { useAction, useMutation, useQuery } from "convex/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   BadgeCheck,
@@ -68,6 +68,7 @@ const VERIFICATION_LABEL: Record<TaskRow["verification"], string> = {
   telegram_group: "Telegram group membership",
   telegram_bot: "Sponsor bot start event",
   provider_ad: "Advertising provider event",
+  in_app_ad: "Server-timed sponsored view",
   social: "Public social action",
   manual: "Operator review",
 };
@@ -104,11 +105,20 @@ export default function Tasks() {
     status: "verified" | "rejected" | "pending" | "unavailable";
     message: string;
   } | null>(null);
+  // Local ticker that mirrors the backend-timed sponsored view.
+  const [viewStart, setViewStart] = useState<number | null>(null);
+  const [clock, setClock] = useState(() => Date.now());
 
   const submit = useMutation(api.tasks.submit);
   const verify = useAction(api.tasks.verifyTask);
 
   const selected = feed?.find((task) => task.id === selectedId) ?? null;
+
+  useEffect(() => {
+    if (viewStart === null) return;
+    const id = window.setInterval(() => setClock(Date.now()), 500);
+    return () => window.clearInterval(id);
+  }, [viewStart]);
 
   if (!feed || !snapshot) {
     return (
@@ -131,7 +141,33 @@ export default function Tasks() {
   const openTask = (task: TaskRow) => {
     setSelectedId(task.id);
     setResult(null);
+    setViewStart(null);
   };
+
+  const startSpot = async (task: TaskRow) => {
+    setBusy(true);
+    setResult(null);
+    try {
+      await submit({ taskId: task.id });
+      setViewStart(Date.now());
+      setClock(Date.now());
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Could not start the spot.";
+      setResult({ status: "unavailable", message });
+      toast.error(message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const adTask = selected?.verification === "in_app_ad";
+  const adSeconds = selected?.minViewSeconds ?? 15;
+  const adWatched =
+    viewStart === null
+      ? 0
+      : Math.min(adSeconds, Math.floor((clock - viewStart) / 1000));
+  const adRemaining = Math.max(0, adSeconds - adWatched);
 
   const runVerify = async (task: TaskRow) => {
     setBusy(true);
@@ -314,7 +350,12 @@ export default function Tasks() {
 
                 <button
                   type="button"
-                  disabled={state === "completed" || state === "expired" || state === "paused" || state === "pending"}
+                  disabled={
+                    state === "completed" ||
+                    state === "expired" ||
+                    state === "paused" ||
+                    (state === "pending" && task.verification !== "in_app_ad")
+                  }
                   onClick={() => openTask(task)}
                   className={cn(
                     "flex w-full items-center justify-between border-t border-border/70 px-3.5 py-2.5 font-mono text-[9.5px] uppercase tracking-[0.1em] transition-colors",
@@ -370,6 +411,7 @@ export default function Tasks() {
           if (!open) {
             setSelectedId(null);
             setResult(null);
+            setViewStart(null);
           }
         }}
       >
@@ -469,7 +511,23 @@ export default function Tasks() {
               ) : null}
 
               <div className="flex flex-col gap-2">
-                {targetUrl(selected) ? (
+                {adTask ? (
+                  <>
+                    <div className="flex items-center justify-between font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
+                      <span>Server-timed view</span>
+                      <span className="num text-primary">
+                        {adWatched}s / {adSeconds}s
+                      </span>
+                    </div>
+                    <div className="h-1 overflow-hidden rounded-full bg-border">
+                      <div
+                        className="h-full bg-primary transition-[width] duration-500"
+                        style={{ width: `${(adWatched / adSeconds) * 100}%` }}
+                      />
+                    </div>
+                  </>
+                ) : null}
+                {targetUrl(selected) && !adTask ? (
                   <Button
                     type="button"
                     variant="outline"
@@ -486,9 +544,16 @@ export default function Tasks() {
                     busy ||
                     taskState(selected) === "completed" ||
                     taskState(selected) === "expired" ||
-                    taskState(selected) === "paused"
+                    taskState(selected) === "paused" ||
+                    (adTask && viewStart !== null && adRemaining > 0)
                   }
-                  onClick={() => runVerify(selected)}
+                  onClick={() => {
+                    if (adTask && viewStart === null) {
+                      void startSpot(selected);
+                    } else {
+                      void runVerify(selected);
+                    }
+                  }}
                 >
                   {busy ? (
                     <>
@@ -497,6 +562,18 @@ export default function Tasks() {
                   ) : taskState(selected) === "completed" ? (
                     <>
                       <Check className="size-3.5" /> Completed
+                    </>
+                  ) : adTask && viewStart === null ? (
+                    <>
+                      <Megaphone className="size-3.5" /> Start sponsored spot
+                    </>
+                  ) : adTask && adRemaining > 0 ? (
+                    <>
+                      <Clock className="size-3.5" /> Spot playing · {adRemaining}s
+                    </>
+                  ) : adTask ? (
+                    <>
+                      <BadgeCheck className="size-3.5" /> Claim reward
                     </>
                   ) : (
                     <>

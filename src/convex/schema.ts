@@ -154,6 +154,8 @@ const schema = defineSchema(
       miningEnabledAt: v.number(),
       withdrawalsEnabled: v.boolean(),
       ownerUserId: v.optional(v.id("users")),
+      // Set once the starter sponsor missions have been published.
+      starterMissionsSeededAt: v.optional(v.number()),
       updatedAt: v.number(),
       updatedBy: v.optional(v.string()),
     }).index("by_key", ["key"]),
@@ -263,10 +265,13 @@ const schema = defineSchema(
         v.literal("telegram_group"),
         v.literal("telegram_bot"),
         v.literal("provider_ad"),
+        v.literal("in_app_ad"),
         v.literal("social"),
         v.literal("manual"),
       ),
       target: v.optional(v.string()),
+      // Minimum server-timed view length for in_app_ad campaigns.
+      minViewSeconds: v.optional(v.number()),
       verificationNote: v.string(),
       status: v.union(
         v.literal("active"),

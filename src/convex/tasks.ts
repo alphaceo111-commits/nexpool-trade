@@ -424,6 +424,37 @@ export const verifyTask = action({
       };
     }
 
+    if (task.verification === "in_app_ad") {
+      const minSeconds = task.minViewSeconds ?? 15;
+      // Every "start spot" tap re-stamps submittedAt, so the clock resets per view.
+      const startedAt =
+        context.completion?.submittedAt ?? context.completion?.startedAt ?? Date.now();
+      const watched = Math.floor((Date.now() - startedAt) / 1000);
+      if (watched < minSeconds) {
+        await ctx.runMutation(internal.tasks.markCompletion, {
+          completionId,
+          status: "pending",
+          note: `Sponsored spot open for ${watched}s of ${minSeconds}s. Claim unlocks at the full view time.`,
+        });
+        return {
+          status: "pending",
+          message: `Keep the sponsored spot open for ${minSeconds - watched}s more, then claim.`,
+        };
+      }
+      const granted = await ctx.runMutation(internal.tasks.grantTaskReward, {
+        completionId,
+        verifiedBy: "in-app-view",
+        note: `Sponsored spot timed by the server at ${watched}s (minimum ${minSeconds}s).`,
+      });
+      return {
+        status: "verified",
+        message: granted.granted
+          ? "View timed and reward credited."
+          : "Already verified.",
+        rewardNex: granted.rewardNex ?? 0,
+      };
+    }
+
     const note =
       task.verification === "telegram_bot"
         ? "Sponsor bot has no verification API. An operator must confirm the start event."

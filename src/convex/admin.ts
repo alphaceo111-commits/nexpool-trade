@@ -25,6 +25,7 @@ const verificationKind = v.union(
   v.literal("telegram_group"),
   v.literal("telegram_bot"),
   v.literal("provider_ad"),
+  v.literal("in_app_ad"),
   v.literal("social"),
   v.literal("manual"),
 );
@@ -508,6 +509,7 @@ export const createTask = mutation({
     verification: verificationKind,
     target: v.optional(v.string()),
     verificationNote: v.string(),
+    minViewSeconds: v.optional(v.number()),
     expiresAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
@@ -546,6 +548,12 @@ export const createTask = mutation({
     if (args.expiresAt !== undefined && args.expiresAt <= Date.now()) {
       throw new Error("Expiry must be in the future.");
     }
+    if (
+      args.minViewSeconds !== undefined &&
+      (args.minViewSeconds < 5 || args.minViewSeconds > 300)
+    ) {
+      throw new Error("In-app view time must be between 5 and 300 seconds.");
+    }
 
     const id = await ctx.db.insert("tasks", {
       title,
@@ -557,6 +565,8 @@ export const createTask = mutation({
       speedBonusNexPerHour: roundNex(args.speedBonusNexPerHour),
       verification: args.verification,
       target: args.target?.trim() || undefined,
+      minViewSeconds:
+        args.verification === "in_app_ad" ? args.minViewSeconds ?? 15 : undefined,
       verificationNote:
         args.verificationNote.trim() ||
         "Completion is checked on the server before any reward is credited.",

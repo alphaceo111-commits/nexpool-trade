@@ -12,6 +12,7 @@ import {
   settleMining,
 } from "./engine";
 import { getViewer } from "./engine";
+import { seedStarterMissions } from "./missions";
 
 /** Idempotent account bootstrap: profile, balance, config and referral capture. */
 export const ensure = mutation({
@@ -21,6 +22,7 @@ export const ensure = mutation({
   },
   handler: async (ctx, args) => {
     const { profile } = await ensureAccount(ctx, args);
+    await seedStarterMissions(ctx);
     return { profileId: profile._id, nexId: profile.nexId };
   },
 });
@@ -499,6 +501,7 @@ export const taskFeed = query({
           speedBonusNexPerHour: task.speedBonusNexPerHour,
           verification: task.verification,
           target: task.target,
+          minViewSeconds: task.minViewSeconds ?? null,
           verificationNote: task.verificationNote,
           status: task.status,
           expired,
