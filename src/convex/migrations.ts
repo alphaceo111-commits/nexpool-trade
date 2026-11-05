@@ -1,6 +1,7 @@
 import { internalMutation } from "./_generated/server";
 import { CONFIG_DEFAULTS, CONFIG_KEY } from "./engine";
-import { seedStarterMissions } from "./missions";
+import { DEFAULT_TASK_XP, seedLevels } from "./levels";
+import { seedBotStartMissions, seedStarterMissions } from "./missions";
 
 /**
  * One-off operator migration: pushes the launch mining rate onto a deployment
@@ -14,6 +15,30 @@ export const publishStarterMissions = internalMutation({
     await seedStarterMissions(ctx);
     const tasks = await ctx.db.query("tasks").collect();
     return { tasks: tasks.length, titles: tasks.map((task) => task.title) };
+  },
+});
+
+/** Seeds the ladder, the sponsored bot campaigns and any missing task XP. */
+export const applyProgression = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    await seedLevels(ctx);
+    await seedBotStartMissions(ctx);
+
+    let xpBackfilled = 0;
+    const tasks = await ctx.db.query("tasks").collect();
+    for (const task of tasks) {
+      if (task.xpReward !== undefined) continue;
+      await ctx.db.patch(task._id, { xpReward: DEFAULT_TASK_XP });
+      xpBackfilled += 1;
+    }
+
+    const levels = await ctx.db.query("levels").collect();
+    return {
+      levels: levels.length,
+      tasks: tasks.length,
+      xpBackfilled,
+    };
   },
 });
 

@@ -15,6 +15,7 @@ const AppShell = lazy(() => import("./components/app/AppShell"));
 const Home = lazy(() => import("./pages/app/Home"));
 const MiningPage = lazy(() => import("./pages/app/Mining"));
 const TasksPage = lazy(() => import("./pages/app/Tasks"));
+const LevelsPage = lazy(() => import("./pages/app/Levels"));
 const ReferralsPage = lazy(() => import("./pages/app/Referrals"));
 const WalletPage = lazy(() => import("./pages/app/Wallet"));
 const DepositPage = lazy(() => import("./pages/app/Deposit"));
@@ -141,6 +142,7 @@ createRoot(document.getElementById("root")!).render(
                   <Route index element={<Home />} />
                   <Route path="mining" element={<MiningPage />} />
                   <Route path="tasks" element={<TasksPage />} />
+                  <Route path="levels" element={<LevelsPage />} />
                   <Route path="referrals" element={<ReferralsPage />} />
                   <Route path="wallet" element={<WalletPage />} />
                   <Route path="deposit" element={<DepositPage />} />

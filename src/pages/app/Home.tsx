@@ -388,6 +388,11 @@ export default function Home() {
               value={speed.referralBonus}
               total={speed.total}
             />
+            <SpeedRow
+              label={`Level bonuses (L${speed.claimedLevel})`}
+              value={speed.levelBonus}
+              total={speed.total}
+            />
           </div>
         </Panel>
       </div>

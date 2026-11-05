@@ -13,6 +13,7 @@ import {
   Lock,
   Pickaxe,
   Timer,
+  Trophy,
   Users,
   Zap,
 } from "lucide-react";
@@ -301,6 +302,13 @@ export default function Mining() {
               total={speed.total}
               note={`${formatNex(referrals.bonusNexPerHour)} NEX/h per qualified referral, capped at ${speed.referralBonusCap}`}
             />
+            <SpeedLine
+              icon={Trophy}
+              label={`Level bonuses · L${speed.claimedLevel}`}
+              value={speed.levelBonus}
+              total={speed.total}
+              note="Claimed level rewards raise the base rate permanently. XP alone adds nothing."
+            />
             <div className="flex items-center justify-between border-t border-border/70 pt-3">
               <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
                 Total active rate
@@ -329,6 +337,11 @@ export default function Mining() {
                 label: "Referral speed bonuses",
                 value: `${formatNex(speed.referralBonus)} NEX/h`,
                 icon: Users,
+              },
+              {
+                label: "Level speed bonuses",
+                value: `${formatNex(speed.levelBonus)} NEX/h`,
+                icon: Trophy,
               },
               {
                 label: "Daily cap",

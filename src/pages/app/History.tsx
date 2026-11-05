@@ -10,12 +10,14 @@ import {
   Receipt,
   RefreshCw,
   SlidersHorizontal,
+  Trophy,
   Users,
 } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import {
   EmptyState,
   formatDateTime,
+  formatNex,
   Metric,
   Panel,
   SectionHeading,
@@ -43,6 +45,7 @@ const KIND_META = {
   mining: { icon: Gauge, label: "Mining accrual" },
   task: { icon: ListChecks, label: "Task reward" },
   referral: { icon: Users, label: "Referral bonus" },
+  level: { icon: Trophy, label: "Level reward" },
   deposit: { icon: ArrowDownLeft, label: "TON deposit" },
   withdrawal: { icon: ArrowUpRight, label: "Withdrawal" },
   refund: { icon: RefreshCw, label: "Refund" },
@@ -192,7 +195,7 @@ export default function History() {
                       )}
                     >
                       {row.amountNex >= 0 ? "+" : "−"}
-                      {Math.abs(row.amountNex).toFixed(4)}
+                      {formatNex(Math.abs(row.amountNex))}
                     </p>
                     <p className="font-mono text-[8.5px] uppercase tracking-[0.1em] text-muted-foreground">
                       NEX

@@ -332,6 +332,7 @@ export default function Tasks() {
                         +{formatNex(task.speedBonusNexPerHour)} NEX/h
                       </span>
                     ) : null}
+                    <span className="text-up">+{task.xpReward} XP</span>
                     <span className="text-muted-foreground">{meta.label}</span>
                     {task.expiresAt ? (
                       <span className="flex items-center gap-1 text-muted-foreground">
@@ -442,6 +443,10 @@ export default function Tasks() {
                   <p className="num mt-0.5 text-sm text-primary">
                     +{formatNex(selected.speedBonusNexPerHour)} NEX/h
                   </p>
+                </div>
+                <div className="col-span-2 flex items-center justify-between rounded-sm border border-up/30 bg-up/[0.06] px-2.5 py-2">
+                  <p className="label-xs">XP on verification</p>
+                  <p className="num text-sm text-up">+{selected.xpReward} XP</p>
                 </div>
               </div>
 

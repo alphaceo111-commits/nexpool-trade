@@ -135,6 +135,15 @@ export const overview = query({
         ...config,
         ownerUserId: config.ownerUserId ? String(config.ownerUserId) : null,
       },
+      levels: (await ctx.db.query("levels").collect())
+        .sort((a, b) => a.level - b.level)
+        .map((row) => ({
+          level: row.level,
+          name: row.name,
+          xpRequired: row.xpRequired,
+          rewardNex: row.rewardNex,
+          speedBonusNexPerHour: row.speedBonusNexPerHour,
+        })),
       service: {
         miningEnabled: config.miningEnabled,
         withdrawalsEnabled: config.withdrawalsEnabled,
@@ -430,6 +439,82 @@ export const updateConfig = mutation({
   },
 });
 
+const levelInput = v.object({
+  level: v.number(),
+  name: v.string(),
+  xpRequired: v.number(),
+  rewardNex: v.number(),
+  speedBonusNexPerHour: v.number(),
+});
+
+/** Edits the ten-level ladder. Thresholds must rise and rewards stay finite. */
+export const updateLevels = mutation({
+  args: { levels: v.array(levelInput) },
+  handler: async (ctx, args) => {
+    const actor = await requireAdmin(ctx);
+    if (args.levels.length !== 10) {
+      throw new Error("The ladder must contain exactly 10 levels.");
+    }
+    const sorted = [...args.levels].sort((a, b) => a.level - b.level);
+    for (let index = 0; index < sorted.length; index += 1) {
+      const row = sorted[index];
+      if (row.level !== index + 1) {
+        throw new Error("Levels must be numbered 1–10.");
+      }
+      if (row.name.trim().length < 2 || row.name.trim().length > 24) {
+        throw new Error(`Level ${row.level} name must be 2–24 characters.`);
+      }
+      if (row.xpRequired < 1 || row.xpRequired > 10_000_000) {
+        throw new Error(`Level ${row.level} XP target must be between 1 and 10,000,000.`);
+      }
+      if (index > 0 && row.xpRequired <= sorted[index - 1].xpRequired) {
+        throw new Error("XP targets must be higher than the previous level.");
+      }
+      if (row.rewardNex < 0 || row.rewardNex > 100) {
+        throw new Error(`Level ${row.level} reward must be between 0 and 100 NEX.`);
+      }
+      if (row.speedBonusNexPerHour < 0 || row.speedBonusNexPerHour > 10) {
+        throw new Error(
+          `Level ${row.level} speed bonus must be between 0 and 10 NEX/h.`,
+        );
+      }
+    }
+
+    const existing = await ctx.db.query("levels").collect();
+    const byLevel = new Map(existing.map((row) => [row.level, row]));
+    const now = Date.now();
+    for (const row of sorted) {
+      const payload = {
+        level: row.level,
+        name: row.name.trim(),
+        xpRequired: Math.round(row.xpRequired),
+        rewardNex: roundNex(row.rewardNex),
+        speedBonusNexPerHour: roundNex(row.speedBonusNexPerHour),
+        updatedAt: now,
+      };
+      const current = byLevel.get(row.level);
+      if (current) {
+        await ctx.db.patch(current._id, payload);
+      } else {
+        await ctx.db.insert("levels", payload);
+      }
+    }
+
+    await audit(
+      ctx,
+      actor,
+      "levels.update",
+      sorted
+        .map(
+          (row) =>
+            `L${row.level} ${row.name.trim()} ${Math.round(row.xpRequired)}xp → ${roundNex(row.rewardNex)} NEX +${roundNex(row.speedBonusNexPerHour)} NEX/h`,
+        )
+        .join(" · "),
+    );
+    return { updated: sorted.length };
+  },
+});
+
 export const taskAdmin = query({
   args: {},
   handler: async (ctx) => {
@@ -510,6 +595,7 @@ export const createTask = mutation({
     target: v.optional(v.string()),
     verificationNote: v.string(),
     minViewSeconds: v.optional(v.number()),
+    xpReward: v.optional(v.number()),
     expiresAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
@@ -554,6 +640,12 @@ export const createTask = mutation({
     ) {
       throw new Error("In-app view time must be between 5 and 300 seconds.");
     }
+    if (
+      args.xpReward !== undefined &&
+      (args.xpReward < 0 || args.xpReward > 10_000)
+    ) {
+      throw new Error("Task XP must be between 0 and 10,000.");
+    }
 
     const id = await ctx.db.insert("tasks", {
       title,
@@ -563,6 +655,7 @@ export const createTask = mutation({
       instructions,
       rewardNex: roundNex(args.rewardNex),
       speedBonusNexPerHour: roundNex(args.speedBonusNexPerHour),
+      xpReward: args.xpReward !== undefined ? Math.round(args.xpReward) : undefined,
       verification: args.verification,
       target: args.target?.trim() || undefined,
       minViewSeconds:

@@ -14,6 +14,11 @@ import {
   requireProfile,
   roundNex,
 } from "./engine";
+import {
+  DEFAULT_TASK_XP,
+  QUALIFIED_REFERRAL_XP,
+  awardXp,
+} from "./levels";
 
 /** Stage a task for verification. A click alone never pays out. */
 export const submit = mutation({
@@ -162,6 +167,16 @@ export const grantTaskReward = internalMutation({
       });
     }
 
+    // XP is only ever minted here, after the backend has verified the task.
+    const xpAward = await awardXp(ctx, {
+      userId: completion.userId,
+      profile,
+      amountXp: task.xpReward ?? DEFAULT_TASK_XP,
+      source: "task",
+      refId: String(task._id),
+      memo: `Task verified · ${task.title}`,
+    });
+
     const speedNote =
       completion.speedBonusNexPerHour > 0
         ? ` Mining speed +${completion.speedBonusNexPerHour} NEX/h is now active.`
@@ -171,7 +186,7 @@ export const grantTaskReward = internalMutation({
       profile,
       "task",
       "Task verified",
-      `${task.title} confirmed by ${args.verifiedBy}.${reward > 0 ? ` ${reward} NEX credited.` : ""}${speedNote}`,
+      `${task.title} confirmed by ${args.verifiedBy}.${reward > 0 ? ` ${reward} NEX credited.` : ""} +${Math.round(task.xpReward ?? DEFAULT_TASK_XP)} XP.${speedNote}`,
     );
 
     if (profile.referredBy && !profile.referralQualifiedAt) {
@@ -182,12 +197,20 @@ export const grantTaskReward = internalMutation({
       if (self?.qualified) {
         await ctx.db.patch(profile._id, { referralQualifiedAt: now });
         if (referrer) {
+          await awardXp(ctx, {
+            userId: referrer.userId,
+            profile: referrer,
+            amountXp: QUALIFIED_REFERRAL_XP,
+            source: "referral",
+            refId: String(profile._id),
+            memo: `Qualified referral · ${profile.displayName}`,
+          });
           await notifyUser(
             ctx,
             referrer,
             "referral",
             "Referral qualified",
-            `${profile.displayName} completed ${self.verifiedTasks} verified tasks and now counts toward your withdrawal requirement.`,
+            `${profile.displayName} completed ${self.verifiedTasks} verified tasks and now counts toward your withdrawal requirement. +${QUALIFIED_REFERRAL_XP} XP.`,
           );
         }
       } else if (self && referrer) {
@@ -201,7 +224,7 @@ export const grantTaskReward = internalMutation({
       }
     }
 
-    return { granted: true, rewardNex: reward };
+    return { granted: true, rewardNex: reward, xp: xpAward.xp };
   },
 });
 

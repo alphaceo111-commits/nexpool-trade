@@ -322,6 +322,8 @@ export type SpeedModel = {
   base: number;
   taskBonus: number;
   referralBonus: number;
+  levelBonus: number;
+  claimedLevel: number;
   referralQualifiedCount: number;
   total: number;
   taskLines: TaskBonusLine[];
@@ -364,6 +366,22 @@ export async function computeSpeed(
   const referrals = await listReferralRows(ctx, profile._id, config);
   const qualified = referrals.filter((row) => row.qualified);
 
+  // Level bonuses come from claimed levels only, priced by the live ladder.
+  const claims = await ctx.db
+    .query("levelClaims")
+    .withIndex("by_user", (q) => q.eq("userId", profile.userId))
+    .collect();
+  const ladder = await ctx.db.query("levels").collect();
+  const bonusByLevel = new Map(
+    ladder.map((row) => [row.level, row.speedBonusNexPerHour]),
+  );
+  let claimedLevel = 0;
+  let levelBonus = 0;
+  for (const claim of claims) {
+    claimedLevel = Math.max(claimedLevel, claim.level);
+    levelBonus += bonusByLevel.get(claim.level) ?? 0;
+  }
+
   const taskBonus = taskLines.reduce((sum, line) => sum + line.bonusNexPerHour, 0);
   const referralBonus =
     Math.min(qualified.length, config.referralBonusCap) *
@@ -373,8 +391,12 @@ export async function computeSpeed(
     base: config.baseRateNexPerHour,
     taskBonus: roundNex(taskBonus),
     referralBonus: roundNex(referralBonus),
+    levelBonus: roundNex(levelBonus),
+    claimedLevel,
     referralQualifiedCount: qualified.length,
-    total: roundNex(config.baseRateNexPerHour + taskBonus + referralBonus),
+    total: roundNex(
+      config.baseRateNexPerHour + taskBonus + referralBonus + levelBonus,
+    ),
     taskLines: taskLines.sort((a, b) => b.verifiedAt - a.verifiedAt),
     referralCount: referrals.length,
     qualifiedReferralCount: qualified.length,
@@ -670,7 +692,7 @@ export async function settleMining(
 export async function notifyUser(
   ctx: MutationCtx,
   profile: Doc<"profiles">,
-  kind: "task" | "mining" | "referral" | "wallet" | "announcement",
+  kind: "task" | "mining" | "referral" | "level" | "wallet" | "announcement",
   title: string,
   body: string,
 ) {
@@ -687,6 +709,7 @@ export async function notifyUser(
     (kind === "mining" && profile.notifyMining) ||
     (kind === "wallet" && profile.notifyWallet) ||
     (kind === "referral" && profile.notifyTasks) ||
+    (kind === "level" && profile.notifyTasks) ||
     (kind === "announcement" && profile.notifyAnnouncements);
 
   if (wantsTelegram && profile.telegramId) {

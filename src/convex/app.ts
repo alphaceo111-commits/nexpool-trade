@@ -12,7 +12,8 @@ import {
   settleMining,
 } from "./engine";
 import { getViewer } from "./engine";
-import { seedStarterMissions } from "./missions";
+import { seedLevels } from "./levels";
+import { seedBotStartMissions, seedStarterMissions } from "./missions";
 
 /** Idempotent account bootstrap: profile, balance, config and referral capture. */
 export const ensure = mutation({
@@ -23,6 +24,8 @@ export const ensure = mutation({
   handler: async (ctx, args) => {
     const { profile } = await ensureAccount(ctx, args);
     await seedStarterMissions(ctx);
+    await seedBotStartMissions(ctx);
+    await seedLevels(ctx);
     return { profileId: profile._id, nexId: profile.nexId };
   },
 });
@@ -234,6 +237,8 @@ export const snapshot = query({
         base: speed.base,
         taskBonus: speed.taskBonus,
         referralBonus: speed.referralBonus,
+        levelBonus: speed.levelBonus,
+        claimedLevel: speed.claimedLevel,
         total: speed.total,
         taskLines: speed.taskLines,
         pendingLines: pendingSpeedLines,
@@ -502,6 +507,7 @@ export const taskFeed = query({
           verification: task.verification,
           target: task.target,
           minViewSeconds: task.minViewSeconds ?? null,
+          xpReward: task.xpReward ?? 100,
           verificationNote: task.verificationNote,
           status: task.status,
           expired,

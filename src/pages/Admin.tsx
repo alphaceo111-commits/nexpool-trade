@@ -561,7 +561,103 @@ function NumberInput({
 function Economy() {
   const overview = useQuery(api.admin.overview);
   if (!overview) return <LoadingBlock rows={4} />;
-  return <EconomyForm config={overview.config} />;
+  return (
+    <div className="space-y-3">
+      <EconomyForm config={overview.config} />
+      <LadderPanel levels={overview.levels} />
+    </div>
+  );
+}
+
+type AdminLevel = AdminOverview["levels"][number];
+
+/** The level ladder: XP targets, NEX rewards and mining-speed steps are edited
+ * separately, and the backend rejects thresholds that do not rise. */
+function LadderPanel({ levels }: { levels: AdminLevel[] }) {
+  const updateLevels = useMutation(api.admin.updateLevels);
+  const [rows, setRows] = useState<AdminLevel[]>(levels);
+  const [saving, setSaving] = useState(false);
+
+  const patchRow = (level: number, patch: Partial<AdminLevel>) =>
+    setRows((current) =>
+      current.map((row) => (row.level === level ? { ...row, ...patch } : row)),
+    );
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await updateLevels({ levels: rows });
+      toast.success("Progression ladder saved");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Ladder rejected.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Panel
+      eyebrow="Progression"
+      title="Level rewards & speed bonuses"
+      action={
+        <Button size="sm" onClick={save} disabled={saving} className="gap-1.5">
+          {saving ? <Spinner /> : <Check className="size-3" />} Save ladder
+        </Button>
+      }
+    >
+      <p className="text-[9.5px] leading-relaxed text-muted-foreground">
+        XP targets must climb at every level. Rewards and speed bonuses are edited
+        separately; a claim is only accepted when the stored XP target is met and the
+        previous level is already claimed.
+      </p>
+      <div className="mt-3 grid gap-2 lg:grid-cols-2">
+        {rows.map((row) => (
+          <div
+            key={row.level}
+            className="rounded-sm border border-border/70 bg-panel/40 px-2.5 py-2"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] font-medium">
+                Level {row.level} — {row.name}
+              </p>
+              <span className="num font-mono text-[9px] text-muted-foreground">
+                {row.xpRequired.toLocaleString("en-US")} XP
+              </span>
+            </div>
+            <div className="mt-1.5 grid grid-cols-3 gap-1.5">
+              <label className="block">
+                <span className="label-xs">XP target</span>
+                <NumberInput
+                  value={row.xpRequired}
+                  onChange={(value) => patchRow(row.level, { xpRequired: value })}
+                  step="1"
+                  min="1"
+                />
+              </label>
+              <label className="block">
+                <span className="label-xs">Reward NEX</span>
+                <NumberInput
+                  value={row.rewardNex}
+                  onChange={(value) => patchRow(row.level, { rewardNex: value })}
+                  step="any"
+                />
+              </label>
+              <label className="block">
+                <span className="label-xs">Speed NEX/h</span>
+                <NumberInput
+                  value={row.speedBonusNexPerHour}
+                  onChange={(value) =>
+                    patchRow(row.level, { speedBonusNexPerHour: value })
+                  }
+                  step="any"
+                />
+              </label>
+            </div>
+          </div>
+        ))}
+      </div>
+    </Panel>
+  );
 }
 
 function EconomyForm({ config }: { config: AdminConfig }) {

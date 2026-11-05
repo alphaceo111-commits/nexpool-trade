@@ -185,6 +185,8 @@ const schema = defineSchema(
       restricted: v.boolean(),
       restrictionReason: v.optional(v.string()),
       complianceCleared: v.boolean(),
+      // Lifetime XP from verified activities; levels can never skip a claim.
+      xp: v.optional(v.number()),
       createdAt: v.number(),
     })
       .index("by_user", ["userId"])
@@ -235,6 +237,7 @@ const schema = defineSchema(
         v.literal("withdrawal"),
         v.literal("deposit"),
         v.literal("refund"),
+        v.literal("level"),
         v.literal("adjustment"),
       ),
       amountNex: v.number(),
@@ -272,6 +275,8 @@ const schema = defineSchema(
       target: v.optional(v.string()),
       // Minimum server-timed view length for in_app_ad campaigns.
       minViewSeconds: v.optional(v.number()),
+      // XP credited only after the backend verifies the completion.
+      xpReward: v.optional(v.number()),
       verificationNote: v.string(),
       status: v.union(
         v.literal("active"),
@@ -376,11 +381,44 @@ const schema = defineSchema(
         v.literal("mining"),
         v.literal("referral"),
         v.literal("wallet"),
+        v.literal("level"),
         v.literal("announcement"),
       ),
       title: v.string(),
       body: v.string(),
       readAt: v.optional(v.number()),
+      createdAt: v.number(),
+    }).index("by_user_createdAt", ["userId", "createdAt"]),
+
+    // Level ladder. Editable by the operator; XP thresholds must stay rising.
+    levels: defineTable({
+      level: v.number(),
+      name: v.string(),
+      xpRequired: v.number(),
+      rewardNex: v.number(),
+      speedBonusNexPerHour: v.number(),
+      updatedAt: v.number(),
+    }).index("by_level", ["level"]),
+
+    // One row per level a user has claimed. Unique by construction.
+    levelClaims: defineTable({
+      userId: v.id("users"),
+      level: v.number(),
+      rewardNex: v.number(),
+      speedBonusNexPerHour: v.number(),
+      xpAtClaim: v.number(),
+      claimedAt: v.number(),
+    })
+      .index("by_user", ["userId"])
+      .index("by_user_level", ["userId", "level"]),
+
+    // Append-only XP history so every point traces back to a verified action.
+    xpEvents: defineTable({
+      userId: v.id("users"),
+      amountXp: v.number(),
+      source: v.string(),
+      refId: v.optional(v.string()),
+      memo: v.string(),
       createdAt: v.number(),
     }).index("by_user_createdAt", ["userId", "createdAt"]),
 

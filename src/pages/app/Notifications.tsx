@@ -9,6 +9,7 @@ import {
   Coins,
   ListChecks,
   Megaphone,
+  Trophy,
   Users,
 } from "lucide-react";
 import {
@@ -28,6 +29,7 @@ const KIND_META = {
   task: { icon: ListChecks, label: "Task", tone: "signal" as const },
   mining: { icon: Coins, label: "Mining", tone: "gold" as const },
   referral: { icon: Users, label: "Referral", tone: "up" as const },
+  level: { icon: Trophy, label: "Level", tone: "gold" as const },
   wallet: { icon: Coins, label: "Wallet", tone: "warn" as const },
   announcement: { icon: Megaphone, label: "Platform", tone: "muted" as const },
 };

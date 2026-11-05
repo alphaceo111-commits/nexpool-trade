@@ -31,6 +31,7 @@ export async function seedStarterMissions(ctx: MutationCtx) {
       ],
       rewardNex: 0.5,
       speedBonusNexPerHour: 0.05,
+      xpReward: 150,
       verification: "manual",
       target: "https://www.tiktok.com/@muhammad_the_developer",
       verificationNote:
@@ -53,6 +54,7 @@ export async function seedStarterMissions(ctx: MutationCtx) {
       ],
       rewardNex: 0.25,
       speedBonusNexPerHour: 0.02,
+      xpReward: 50,
       verification: "in_app_ad",
       minViewSeconds: 15,
       verificationNote:
@@ -68,6 +70,52 @@ export async function seedStarterMissions(ctx: MutationCtx) {
       starterMissionsSeededAt: now,
       updatedAt: now,
       updatedBy: "nexpool-seed",
+    });
+  }
+}
+
+/** Sponsored bot-start campaigns. Idempotent by target link, so operators can
+ * archive one without it coming back on the next app load. */
+export async function seedBotStartMissions(ctx: MutationCtx) {
+  const BOT_MISSIONS = [
+    {
+      title: "Start @ART_AIRDROP_BOT",
+      sponsor: "ART Airdrop",
+      target: "https://t.me/ART_AIRDROP_BOT?start=7154361039",
+    },
+    {
+      title: "Start @MusicsHuntersbot",
+      sponsor: "Music Hunters",
+      target: "https://t.me/MusicsHuntersbot?start=_tgr_-z_X1ThjNGRk",
+    },
+  ];
+
+  const now = Date.now();
+  const existing = await ctx.db.query("tasks").collect();
+  const knownTargets = new Set(existing.map((task) => task.target));
+
+  for (const mission of BOT_MISSIONS) {
+    if (knownTargets.has(mission.target)) continue;
+    await ctx.db.insert("tasks", {
+      title: mission.title,
+      sponsor: mission.sponsor,
+      category: "sponsor_bot",
+      description: `Open ${mission.sponsor} through the sponsor link and press Start so the bot registers your account. The operator desk confirms the start before NEX and XP are credited.`,
+      instructions: [
+        `Open the sponsor link and press Start in ${mission.title.replace("Start ", "")}.`,
+        "Keep the bot unblocked — a blocked or deleted chat voids the reward.",
+        "Come back and tap Submit for review. The operator desk confirms the start.",
+      ],
+      rewardNex: 0.2,
+      speedBonusNexPerHour: 0.02,
+      xpReward: 120,
+      verification: "manual",
+      target: mission.target,
+      verificationNote:
+        "Bot starts are confirmed by the operator desk. The click alone credits nothing.",
+      status: "active",
+      createdAt: now,
+      createdBy: "nexpool-seed",
     });
   }
 }

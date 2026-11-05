@@ -21,6 +21,7 @@ import {
   LayoutDashboard,
   ListChecks,
   ShieldCheck,
+  Trophy,
   UserRound,
   Users,
   Wallet,
@@ -33,6 +34,7 @@ const NAV = [
   { to: "/app", label: "Home", icon: LayoutDashboard, end: true },
   { to: "/app/mining", label: "Mining", icon: Gauge, end: false },
   { to: "/app/tasks", label: "Tasks", icon: ListChecks, end: false },
+  { to: "/app/levels", label: "Levels", icon: Trophy, end: false },
   { to: "/app/referrals", label: "Referrals", icon: Users, end: false },
   { to: "/app/wallet", label: "Wallet", icon: Wallet, end: false },
 ];
@@ -51,6 +53,7 @@ const TITLES: Record<string, string> = {
   "/app": "Dashboard",
   "/app/mining": "Mining engine",
   "/app/tasks": "Task centre",
+  "/app/levels": "Progression",
   "/app/referrals": "Referral desk",
   "/app/wallet": "Wallet",
   "/app/deposit": "Deposit",
@@ -415,7 +418,7 @@ export default function AppShell() {
         aria-label="Main navigation"
         className="fixed inset-x-0 bottom-0 z-40 border-t border-border/80 nav-blur bottom-nav lg:hidden"
       >
-        <div className="mx-auto grid max-w-lg grid-cols-5">
+        <div className="mx-auto grid max-w-lg grid-cols-6">
           {NAV.map((item) => (
             <NavLink
               key={item.to}
