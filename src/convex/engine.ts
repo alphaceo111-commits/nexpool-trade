@@ -5,7 +5,13 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 
 export const CONFIG_KEY = "default";
 
-const NEX_PRECISION = 1_000_000;
+/**
+ * NEX is accounted in fixed smallest units (nano-NEX, 9 decimals). Every
+ * accrual, ledger and payout figure is rounded to this grid before it is
+ * stored, so display and storage never disagree and no float dust accumulates.
+ */
+export const NEX_DECIMALS = 9;
+export const NEX_PRECISION = 1_000_000_000;
 export const roundNex = (value: number) =>
   Math.round(value * NEX_PRECISION) / NEX_PRECISION;
 
@@ -31,7 +37,8 @@ export type AppConfigShape = {
  * `appConfig`; after that the owner edits them in the admin console.
  */
 export const CONFIG_DEFAULTS: AppConfigShape = {
-  baseRateNexPerHour: 0.5,
+  // Launch rate: 0.000000500 NEX/hour, i.e. 500,000 nano-NEX per hour.
+  baseRateNexPerHour: 0.0000005,
   dailyLimitNex: 2,
   nexUsdRate: 2.5,
   tonUsdRate: 5.2,
@@ -546,7 +553,9 @@ export async function settleMining(
   });
 
   if (projection.total <= 0) {
-    await ctx.db.patch(balance._id, { lastSettledAt: now, updatedAt: now });
+    // At launch rates a few seconds of accrual is less than one nano-NEX.
+    // Leave lastSettledAt untouched so the residual carries into the next
+    // settlement instead of being rounded away on every refresh.
     const today = dayKey(now);
     const dayRow = await ctx.db
       .query("miningDays")

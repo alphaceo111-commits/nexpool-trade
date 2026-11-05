@@ -1,5 +1,5 @@
 import { BrandMark } from "@/components/Brand";
-import { LoadingBlock, StatusPill } from "@/components/app/parts";
+import { LoadingBlock, StatusPill, formatNex } from "@/components/app/parts";
 import { Button } from "@/components/ui/button";
 import { api } from "@/convex/_generated/api";
 import { cn } from "@/lib/utils";
@@ -95,7 +95,7 @@ function SidebarBody() {
       <div className="border-b border-sidebar-border px-4 py-3.5">
         <p className="label-xs">Confirmed balance</p>
         <p className="num mt-1 text-xl font-semibold text-gold">
-          {snapshot ? snapshot.balance.totalNex.toFixed(4) : "—"}
+          {snapshot ? formatNex(snapshot.balance.totalNex) : "—"}
           <span className="ml-1 font-mono text-[10px] text-muted-foreground">
             NEX
           </span>
@@ -363,7 +363,7 @@ export default function AppShell() {
               </span>
               <span className="h-3 w-px bg-border" />
               <span className="num text-[11px] text-gold">
-                {snapshot.balance.totalNex.toFixed(4)} NEX
+                {formatNex(snapshot.balance.totalNex)} NEX
               </span>
             </div>
             <span className="ml-auto flex items-center gap-2 lg:hidden">

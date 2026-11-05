@@ -11,9 +11,17 @@ import {
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
+/** NEX renders at 9 decimals (matching the nano-NEX accounting grid) until it
+ * grows past 0.01, then at a readable precision. */
 export function formatNex(value: number) {
   const abs = Math.abs(value);
-  const digits = abs >= 100 ? 2 : abs >= 1 ? 3 : abs >= 0.01 ? 4 : 6;
+  if (abs < 0.01) {
+    return value.toLocaleString("en-US", {
+      minimumFractionDigits: 9,
+      maximumFractionDigits: 9,
+    });
+  }
+  const digits = abs >= 100 ? 2 : abs >= 1 ? 3 : 4;
   return value.toLocaleString("en-US", {
     minimumFractionDigits: Math.min(digits, 2),
     maximumFractionDigits: digits,

@@ -20,6 +20,7 @@ import {
 import {
   formatDate,
   formatDateTime,
+  formatNex,
   initials,
   Panel,
   SectionHeading,
@@ -209,7 +210,7 @@ function ProfileView({ snapshot }: { snapshot: Snapshot }) {
           <div>
             <p className="label-xs">Balance</p>
             <p className="num mt-1 text-[11px] text-gold">
-              {balance.totalNex.toFixed(4)} NEX
+              {formatNex(balance.totalNex)} NEX
             </p>
           </div>
           <div>

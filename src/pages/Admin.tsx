@@ -601,11 +601,14 @@ function EconomyForm({ config }: { config: AdminConfig }) {
       <div className="grid gap-3 lg:grid-cols-2">
         <Panel eyebrow="Mining engine" title="Rate & daily cap">
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Base rate (NEX / hour)" hint="Applied to every active account.">
+            <Field
+              label="Base rate (NEX / hour)"
+              hint="Applied to every active account · 9-decimal grid"
+            >
               <NumberInput
                 value={form.baseRateNexPerHour}
                 onChange={(value) => set("baseRateNexPerHour", value)}
-                step="0.01"
+                step="any"
               />
             </Field>
             <Field label="Daily cap (NEX)" hint="Enforced per UTC day by the backend.">

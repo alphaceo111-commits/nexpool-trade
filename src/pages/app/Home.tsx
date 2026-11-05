@@ -195,7 +195,7 @@ export default function Home() {
         >
           <div className="flex flex-wrap items-end gap-x-3 gap-y-1">
             <p className="num gold-glow text-[40px] leading-none font-semibold tracking-tight text-gold sm:text-[48px]">
-              {balance.totalNex.toFixed(4)}
+              {formatNex(balance.totalNex)}
             </p>
             <span className="mb-1 font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
               NEX

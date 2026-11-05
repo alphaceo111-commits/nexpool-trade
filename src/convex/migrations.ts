@@ -1,0 +1,39 @@
+import { internalMutation } from "./_generated/server";
+import { CONFIG_DEFAULTS, CONFIG_KEY } from "./engine";
+import { seedStarterMissions } from "./missions";
+
+/**
+ * One-off operator migration: pushes the launch mining rate onto a deployment
+ * whose appConfig row still carries the old default. Run once with
+ * `bun convex run migrations:applyLaunchMiningRate`.
+ */
+/** Publishes the launch sponsor missions without waiting for an app load. */
+export const publishStarterMissions = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    await seedStarterMissions(ctx);
+    const tasks = await ctx.db.query("tasks").collect();
+    return { tasks: tasks.length, titles: tasks.map((task) => task.title) };
+  },
+});
+
+export const applyLaunchMiningRate = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const row = await ctx.db
+      .query("appConfig")
+      .withIndex("by_key", (q) => q.eq("key", CONFIG_KEY))
+      .first();
+    if (!row) return { patched: false, reason: "no config row yet" };
+    await ctx.db.patch(row._id, {
+      baseRateNexPerHour: CONFIG_DEFAULTS.baseRateNexPerHour,
+      updatedAt: Date.now(),
+      updatedBy: "launch-rate",
+    });
+    return {
+      patched: true,
+      previousRate: row.baseRateNexPerHour,
+      baseRateNexPerHour: CONFIG_DEFAULTS.baseRateNexPerHour,
+    };
+  },
+});

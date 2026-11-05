@@ -144,7 +144,7 @@ function Wallet() {
           <p className="label-xs">Total NEX balance</p>
           <div className="mt-1 flex flex-wrap items-end gap-2">
             <p className="num gold-glow text-[38px] leading-none font-semibold text-gold">
-              {balance.totalNex.toFixed(4)}
+              {formatNex(balance.totalNex)}
             </p>
             <span className="mb-1 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
               NEX
