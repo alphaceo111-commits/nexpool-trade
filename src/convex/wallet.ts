@@ -115,6 +115,7 @@ export const verifyChain = internalAction({
       await ctx.runMutation(internal.wallet.setChainVerification, {
         withdrawalId: args.withdrawalId,
         verifiedAt: Date.now(),
+        confirmed: payload.success !== false,
         note:
           payload.success === false
             ? "Transaction exists on TON mainnet but the indexer reports a reverted execution."
@@ -143,15 +144,34 @@ export const setChainVerification = internalMutation({
   args: {
     withdrawalId: v.id("withdrawals"),
     verifiedAt: v.optional(v.number()),
+    confirmed: v.optional(v.boolean()),
     note: v.string(),
   },
   handler: async (ctx, args) => {
     const row = await ctx.db.get(args.withdrawalId);
     if (!row) return;
+    const firstConfirmation =
+      Boolean(args.verifiedAt && args.confirmed) && !row.chainVerifiedAt;
     await ctx.db.patch(row._id, {
       chainVerifiedAt: args.verifiedAt,
       chainVerificationNote: args.note,
     });
+
+    if (firstConfirmation && row.status === "paid") {
+      const profile = await ctx.db
+        .query("profiles")
+        .withIndex("by_user", (q) => q.eq("userId", row.userId))
+        .first();
+      if (profile) {
+        await notifyUser(
+          ctx,
+          profile,
+          "wallet",
+          "Withdrawal completed",
+          `${row.tonAmount} TON payout was independently found on TON mainnet. Transaction ${(row.txHash ?? "").slice(0, 12)}… is chain-verified.`,
+        );
+      }
+    }
   },
 });
 

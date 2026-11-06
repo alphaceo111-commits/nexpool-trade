@@ -147,6 +147,10 @@ export default function BotOps() {
       toast.success("Webhook registered", {
         description: `${result.url}${
           result.secretRequired ? " · secret token attached" : ""
+        }${
+          result.commandsSynced
+            ? ` · ${result.commands} commands synced`
+            : " · command menu not synced"
         }`,
       });
     } catch (error) {
@@ -380,7 +384,7 @@ export default function BotOps() {
               ) : (
                 <Radio className="size-3.5" />
               )}
-              {registering ? "Registering…" : "Register webhook"}
+              {registering ? "Registering…" : "Register webhook + menu"}
             </Button>
 
             <div>

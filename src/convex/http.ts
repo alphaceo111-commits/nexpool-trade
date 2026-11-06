@@ -8,6 +8,22 @@ const http = httpRouter();
 
 auth.addHttpRoutes(http);
 
+/** Joins the configured app origin with a mini-app route without breaking a
+ * deployment that is served under a subpath. */
+function withAppPath(base: string, path: string | undefined) {
+  if (!path) return base;
+  try {
+    const url = new URL(base);
+    const current = url.pathname.replace(/\/+$/, "");
+    if (current === "" || current === "/app" || current === "/index.html") {
+      url.pathname = path;
+    }
+    return url.toString();
+  } catch {
+    return base;
+  }
+}
+
 /** Health probe for the bot endpoint. */
 http.route({
   path: "/telegram/webhook",
@@ -78,14 +94,16 @@ http.route({
         : null;
     // A referral deep link carries its code into the mini app launch URL so
     // `app.ensure` binds the invite when the recipient opens the app.
-    let buttonUrl = appUrl;
-    if (appUrl && reply.referralCode) {
+    let buttonUrl =
+      appUrl && reply.button ? withAppPath(appUrl, reply.button.path) : null;
+    if (buttonUrl && reply.referralCode) {
+      const base = buttonUrl;
       try {
-        const url = new URL(appUrl);
+        const url = new URL(base);
         url.searchParams.set("ref", reply.referralCode);
         buttonUrl = url.toString();
       } catch {
-        buttonUrl = appUrl;
+        buttonUrl = base;
       }
     }
     const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -96,10 +114,10 @@ http.route({
           text: reply.text,
           disable_web_page_preview: true,
         };
-        if (reply.openApp && buttonUrl) {
+        if (reply.button && buttonUrl) {
           payload.reply_markup = {
             inline_keyboard: [
-              [{ text: "Open NEXPOOL App", web_app: { url: buttonUrl } }],
+              [{ text: reply.button.label, web_app: { url: buttonUrl } }],
             ],
           };
         }

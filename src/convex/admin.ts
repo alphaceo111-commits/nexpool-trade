@@ -719,12 +719,29 @@ export const reviewTask = mutation({
       throw new Error("This completion is already verified.");
     }
     if (args.decision === "reject") {
+      const reason = args.note.trim() || "Rejected by operator review.";
       await ctx.db.patch(completion._id, {
         status: "rejected",
-        note: args.note.trim() || "Rejected by operator review.",
+        note: reason,
         verifiedBy: actor.label,
         submittedAt: Date.now(),
       });
+      const [profile, task] = await Promise.all([
+        ctx.db
+          .query("profiles")
+          .withIndex("by_user", (q) => q.eq("userId", completion.userId))
+          .first(),
+        ctx.db.get(completion.taskId),
+      ]);
+      if (profile) {
+        await notifyUser(
+          ctx,
+          profile,
+          "task",
+          "Task rejected",
+          `${task?.title ?? "A task"} could not be verified. ${reason} No NEX or XP was credited.`,
+        );
+      }
       await audit(
         ctx,
         actor,
@@ -878,8 +895,8 @@ export const decideWithdrawal = mutation({
         ctx,
         profile,
         "wallet",
-        "Withdrawal confirmed",
-        `${withdrawal.tonAmount} TON was broadcast to ${withdrawal.destination.slice(0, 8)}…${withdrawal.destination.slice(-6)}. Tx ${txHash.slice(0, 12)}…`,
+        "Withdrawal approved",
+        `${withdrawal.tonAmount} TON payout approved to ${withdrawal.destination.slice(0, 8)}…${withdrawal.destination.slice(-6)}. Tx ${txHash.slice(0, 12)}…. Independent TON chain verification is running.`,
       );
       await audit(
         ctx,
