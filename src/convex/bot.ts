@@ -334,6 +334,7 @@ function buildUserReply(
   account: UserAccount | null,
   raw: string,
   appUrl: string,
+  inviteCode?: string,
 ): { text: string; openApp: boolean } {
   const command = normalizeCommand(raw);
   const appButton =
@@ -343,7 +344,7 @@ function buildUserReply(
     command !== "/terms";
   const referralLink =
     account && chatId
-      ? `https://t.me/${(process.env.TELEGRAM_BOT_USERNAME ?? "nexpool_desk_bot").replace(/^@/, "")}?start=${account.referralCode}`
+      ? `https://t.me/${(process.env.TELEGRAM_BOT_USERNAME ?? "NEXPOOLBOT").replace(/^@/, "")}?start=${account.referralCode}`
       : null;
 
   if (!account) {
@@ -353,9 +354,13 @@ function buildUserReply(
         "",
         "Anything here can only be answered from your NEXPOOL account.",
         "The account itself is created inside the mini app from your verified Telegram identity — this bot never invents balances or rewards.",
-        "",
+        inviteCode
+          ? `Invite code ${inviteCode} is attached to this start — tap Open NEXPOOL App to bind it to your new account.`
+          : "",
         "Tap Open NEXPOOL App to create your account, mine, complete verified tasks and invite friends.",
-      ].join("\n"),
+      ]
+        .filter((line, index, lines) => line !== "" || lines[index - 1] !== "")
+        .join("\n"),
       openApp: true,
     };
   }
@@ -373,6 +378,11 @@ function buildUserReply(
         "Mine, complete verified tasks and invite friends — rewards post to your ledger once the backend confirms them.",
       ].join("\n");
       extra = ["Open the mini app for the full dashboard."];
+      if (inviteCode) {
+        extra.push(
+          `Invite code ${inviteCode} is attached to this start — tap Open NEXPOOL App to bind it to your new account.`,
+        );
+      }
       break;
     case "/app":
       body = "NEXPOOL opens here 👇";
@@ -586,10 +596,23 @@ export const handleIncoming = internalMutation({
   handler: async (ctx, args) => {
     let reply: string;
     let openApp = false;
+    let referralCode: string | undefined;
     // Telegram chats only ever reach user-facing replies. Desk commands are
     // answered by the operator console (runConsoleCommand), never by the bot,
     // so pool and revenue internals are not exposed to arbitrary chats.
     if (args.chatId) {
+      // `https://t.me/<bot>?start=CODE` delivers a /start payload. Only a code
+      // that belongs to a real profile is forwarded to the mini app button.
+      const startPayload = /^\/start(?:@\w+)?\s+(\S+)$/i.exec(args.text.trim());
+      const candidate = startPayload?.[1]?.trim().toUpperCase();
+      if (candidate && /^[A-Z2-9]{6,12}$/.test(candidate)) {
+        const inviter = await ctx.db
+          .query("profiles")
+          .withIndex("by_referralCode", (q) => q.eq("referralCode", candidate))
+          .first();
+        if (inviter) referralCode = candidate;
+      }
+
       const user = await userSnapshot(ctx, args.chatId);
       const built = buildUserReply(
         args.chatId,
@@ -600,6 +623,7 @@ export const handleIncoming = internalMutation({
           process.env.SITE_URL ??
           process.env.CONVEX_SITE_URL ??
           "",
+        referralCode,
       );
       reply = built.text;
       openApp = built.openApp;
@@ -614,7 +638,7 @@ export const handleIncoming = internalMutation({
       source: args.source ?? "telegram",
       chatId: args.chatId,
     });
-    return { text: reply, openApp };
+    return { text: reply, openApp, referralCode };
   },
 });
 
@@ -656,7 +680,7 @@ export const overview = query({
         chatId: settings?.chatId ?? "",
       },
       configured: Boolean(process.env.TELEGRAM_BOT_TOKEN),
-      botUsername: process.env.TELEGRAM_BOT_USERNAME ?? "@nexpool_desk_bot",
+      botUsername: process.env.TELEGRAM_BOT_USERNAME ?? "@NEXPOOLBOT",
       webhookUrl: siteUrl ? `${siteUrl}/telegram/webhook` : "",
       secretRequired: Boolean(process.env.TELEGRAM_BOT_TOKEN),
       messages: [...messages].reverse(),

@@ -45,7 +45,7 @@ export default function Referrals() {
   }
 
   const { referrals, account, config } = snapshot;
-  const link = `${window.location.origin}/?ref=${account.referralCode}`;
+  const link = account.referralLink;
   const share = `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(
     "Mine NEX on NEXPOOL — verified tasks and qualified referrals only. No purchase required.",
   )}`;
@@ -141,9 +141,10 @@ export default function Referrals() {
           />
         </div>
         <p className="mt-2.5 text-[10px] leading-relaxed text-muted-foreground">
-          Your code is applied at sign-up. A referral qualifies only after the
-          backend verifies {config.referralTaskTarget} completed tasks — a click or
-          a join request alone is not enough.
+          The link opens @NEXPOOLBOT with your code. The bot replies with the mini
+          app button that binds your code to the new account, and a referral
+          qualifies only after the backend verifies {config.referralTaskTarget}{" "}
+          completed tasks — a start alone is not enough.
         </p>
       </Panel>
 

@@ -38,6 +38,10 @@ export const snapshot = query({
     if (!userId || !profile || !balance) return null;
 
     const config = await loadConfig(ctx);
+    const botUsername = (process.env.TELEGRAM_BOT_USERNAME ?? "NEXPOOLBOT").replace(
+      /^@/,
+      "",
+    );
     const speed = await computeSpeed(ctx, profile, config);
     const mining = await readMiningSnapshot(ctx, profile, balance, config, speed);
     const referrals = await listReferralRows(ctx, profile._id, config);
@@ -193,6 +197,7 @@ export const snapshot = query({
         createdAt: profile.createdAt,
         language: profile.language,
         referralCode: profile.referralCode,
+        referralLink: `https://t.me/${botUsername}?start=${profile.referralCode}`,
         telegramLinked: Boolean(profile.telegramId),
         telegramId: profile.telegramId,
         walletAddress: profile.walletAddress,

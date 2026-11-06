@@ -76,6 +76,18 @@ http.route({
       configuredAppUrl && configuredAppUrl.startsWith("https://")
         ? configuredAppUrl
         : null;
+    // A referral deep link carries its code into the mini app launch URL so
+    // `app.ensure` binds the invite when the recipient opens the app.
+    let buttonUrl = appUrl;
+    if (appUrl && reply.referralCode) {
+      try {
+        const url = new URL(appUrl);
+        url.searchParams.set("ref", reply.referralCode);
+        buttonUrl = url.toString();
+      } catch {
+        buttonUrl = appUrl;
+      }
+    }
     const token = process.env.TELEGRAM_BOT_TOKEN;
     if (token && chatId) {
       try {
@@ -84,10 +96,10 @@ http.route({
           text: reply.text,
           disable_web_page_preview: true,
         };
-        if (reply.openApp && appUrl) {
+        if (reply.openApp && buttonUrl) {
           payload.reply_markup = {
             inline_keyboard: [
-              [{ text: "Open NEXPOOL App", web_app: { url: appUrl } }],
+              [{ text: "Open NEXPOOL App", web_app: { url: buttonUrl } }],
             ],
           };
         }
