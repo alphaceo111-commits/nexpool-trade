@@ -42,15 +42,15 @@ export async function seedStarterMissions(ctx: MutationCtx) {
     });
 
     await ctx.db.insert("tasks", {
-      title: "Watch the sponsored signal spot",
+      title: "Watch a rewarded sponsor ad",
       sponsor: "NEXPOOL sponsor desk",
       category: "advertisement",
       description:
-        "Watch a sponsored spot in full. The backend times the view, so closing it early earns nothing.",
+        "Watch one rewarded sponsor ad. The ad network must complete the view and the backend must time it, so closing early earns nothing.",
       instructions: [
-        "Start the spot from this screen and keep it open.",
-        "The claim button unlocks only after the full view time.",
-        "One claim per account; the reward is credited by the backend, not the click.",
+        "Tap Watch rewarded ad — a full-screen sponsored ad opens.",
+        "Watch it to the end. Closing early cancels the reward.",
+        "The claim unlocks after the server-timed minimum, then the backend credits NEX.",
       ],
       rewardNex: 0.25,
       speedBonusNexPerHour: 0.02,
@@ -58,7 +58,7 @@ export async function seedStarterMissions(ctx: MutationCtx) {
       verification: "in_app_ad",
       minViewSeconds: 15,
       verificationNote:
-        "The server measures the view from the moment you start the spot. Views below the minimum length are refused.",
+        "The rewarded ad must finish and the server must measure the minimum view length. Neither the ad promise nor the click alone credits NEX.",
       status: "active",
       createdAt: now,
       createdBy: "nexpool-seed",

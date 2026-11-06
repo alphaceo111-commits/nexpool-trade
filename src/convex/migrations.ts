@@ -18,6 +18,31 @@ export const publishStarterMissions = internalMutation({
   },
 });
 
+/** Moves the seeded sponsored-view task onto the Monetag rewarded ad copy. */
+export const applyMonetagAdTask = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const tasks = await ctx.db.query("tasks").collect();
+    const adTasks = tasks.filter((task) => task.verification === "in_app_ad");
+    for (const task of adTasks) {
+      await ctx.db.patch(task._id, {
+        title: "Watch a rewarded sponsor ad",
+        description:
+          "Watch one rewarded sponsor ad. The ad network must complete the view and the backend must time it, so closing early earns nothing.",
+        instructions: [
+          "Tap Watch rewarded ad — a full-screen sponsored ad opens.",
+          "Watch it to the end. Closing early cancels the reward.",
+          "The claim unlocks after the server-timed minimum, then the backend credits NEX.",
+        ],
+        verificationNote:
+          "The rewarded ad must finish and the server must measure the minimum view length. Neither the ad promise nor the click alone credits NEX.",
+        minViewSeconds: task.minViewSeconds ?? 15,
+      });
+    }
+    return { patched: adTasks.length };
+  },
+});
+
 /** Lowers the persisted UTC-day mining cap to the nano-NEX launch scale. */
 export const applyDailyLimit = internalMutation({
   args: {},
