@@ -12,7 +12,7 @@ import {
   settleMining,
 } from "./engine";
 import { getViewer } from "./engine";
-import { seedLevels } from "./levels";
+import { claimedLevel, seedLevels } from "./levels";
 import { seedBotStartMissions, seedStarterMissions } from "./missions";
 
 /** Idempotent account bootstrap: profile, balance, config and referral capture. */
@@ -56,9 +56,12 @@ export const snapshot = query({
       completions.map((completion) => [completion.taskId, completion]),
     );
     const now = Date.now();
+    const userLevel = await claimedLevel(ctx, profile.userId);
     const liveTasks = tasks.filter(
       (task) =>
-        task.status === "active" && (!task.expiresAt || task.expiresAt > now),
+        task.status === "active" &&
+        (!task.expiresAt || task.expiresAt > now) &&
+        (!task.minLevel || userLevel >= task.minLevel),
     );
     const taskMap = new Map(tasks.map((task) => [task._id, task]));
     const pendingSpeedLines = completions
@@ -494,9 +497,16 @@ export const taskFeed = query({
           .collect()
       : [];
     const map = new Map(completions.map((row) => [row.taskId, row]));
+    const userLevel = profile
+      ? await claimedLevel(ctx, profile.userId)
+      : 0;
 
     return tasks
-      .filter((task) => task.status !== "archived")
+      .filter(
+        (task) =>
+          task.status !== "archived" &&
+          (!task.minLevel || userLevel >= task.minLevel),
+      )
       .map((task) => {
         const completion = map.get(task._id);
         const expired = Boolean(task.expiresAt && task.expiresAt <= now);

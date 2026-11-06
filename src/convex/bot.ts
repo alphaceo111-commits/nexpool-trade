@@ -339,6 +339,10 @@ async function userSnapshot(
     .query("levelClaims")
     .withIndex("by_user", (q) => q.eq("userId", profile.userId))
     .collect();
+  const highestClaimed = claims.reduce(
+    (max, claim) => Math.max(max, claim.level),
+    0,
+  );
 
   const now = Date.now();
   const miningDay = await ctx.db
@@ -349,7 +353,10 @@ async function userSnapshot(
     .first();
 
   const tasks = (await ctx.db.query("tasks").collect()).filter(
-    (task) => task.status === "active" && (!task.expiresAt || task.expiresAt > now),
+    (task) =>
+      task.status === "active" &&
+      (!task.expiresAt || task.expiresAt > now) &&
+      (!task.minLevel || highestClaimed >= task.minLevel),
   );
   const completions = await ctx.db
     .query("taskCompletions")
@@ -410,10 +417,6 @@ async function userSnapshot(
   const isAdmin =
     config.ownerUserId === profile.userId || user?.role === "admin";
 
-  const highestClaimed = claims.reduce(
-    (max, claim) => Math.max(max, claim.level),
-    0,
-  );
   const xp = profile.xp ?? 0;
   const nextLevel = levels.find((row) => row.level === highestClaimed + 1) ?? null;
   const floorXp =

@@ -65,6 +65,15 @@ export async function loadClaims(ctx: QueryCtx | MutationCtx, userId: Id<"users"
     .collect();
 }
 
+/** Highest level the user has actually claimed, or 0 if none. */
+export async function claimedLevel(
+  ctx: QueryCtx | MutationCtx,
+  userId: Id<"users">,
+): Promise<number> {
+  const claims = await loadClaims(ctx, userId);
+  return claims.reduce((max, claim) => Math.max(max, claim.level), 0);
+}
+
 /** Mining-speed bonus from claimed levels only — XP alone unlocks nothing. */
 export async function levelSpeedBonus(
   ctx: QueryCtx | MutationCtx,

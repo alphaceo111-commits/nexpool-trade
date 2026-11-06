@@ -18,6 +18,7 @@ import {
   DEFAULT_TASK_XP,
   QUALIFIED_REFERRAL_XP,
   awardXp,
+  claimedLevel,
 } from "./levels";
 
 /** Stage a task for verification. A click alone never pays out. */
@@ -34,6 +35,12 @@ export const submit = mutation({
     }
     if (task.expiresAt && task.expiresAt <= Date.now()) {
       throw new Error("This task has expired.");
+    }
+    if (task.minLevel) {
+      const level = await claimedLevel(ctx, profile.userId);
+      if (level < task.minLevel) {
+        throw new Error(`This campaign unlocks at level ${task.minLevel}.`);
+      }
     }
 
     const existing = await ctx.db
@@ -86,7 +93,8 @@ export const verificationContext = internalQuery({
         q.eq("userId", args.userId).eq("taskId", args.taskId),
       )
       .first();
-    return { task, profile, completion };
+    const level = await claimedLevel(ctx, args.userId);
+    return { task, profile, completion, level };
   },
 });
 
@@ -337,6 +345,12 @@ export const verifyTask = action({
       return {
         status: "unavailable",
         message: "Account restricted. Contact support.",
+      };
+    }
+    if (task.minLevel && context.level < task.minLevel) {
+      return {
+        status: "unavailable",
+        message: `This campaign unlocks at level ${task.minLevel}.`,
       };
     }
 

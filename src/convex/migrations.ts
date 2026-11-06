@@ -43,6 +43,22 @@ export const applyMonetagAdTask = internalMutation({
   },
 });
 
+/** Hides the seeded TikTok follow campaign until the account claims level 7. */
+export const applyTikTokLevelGate = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const tasks = await ctx.db.query("tasks").collect();
+    const tiktokTasks = tasks.filter(
+      (task) =>
+        task.target?.includes("tiktok.com") || /tiktok/i.test(task.title),
+    );
+    for (const task of tiktokTasks) {
+      await ctx.db.patch(task._id, { minLevel: 7 });
+    }
+    return { patched: tiktokTasks.length, minLevel: 7 };
+  },
+});
+
 /** Lowers the persisted UTC-day mining cap to the nano-NEX launch scale. */
 export const applyDailyLimit = internalMutation({
   args: {},

@@ -33,6 +33,7 @@ export async function seedStarterMissions(ctx: MutationCtx) {
       speedBonusNexPerHour: 0.05,
       xpReward: 150,
       verification: "manual",
+      minLevel: 7,
       target: "https://www.tiktok.com/@muhammad_the_developer",
       verificationNote:
         "Operator review of the follow on TikTok. No reward is credited from the click alone.",

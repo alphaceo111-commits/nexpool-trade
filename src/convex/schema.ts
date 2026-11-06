@@ -275,6 +275,8 @@ const schema = defineSchema(
       target: v.optional(v.string()),
       // Minimum server-timed view length for in_app_ad campaigns.
       minViewSeconds: v.optional(v.number()),
+      // Campaign stays hidden until the user has claimed this level.
+      minLevel: v.optional(v.number()),
       // XP credited only after the backend verifies the completion.
       xpReward: v.optional(v.number()),
       verificationNote: v.string(),
