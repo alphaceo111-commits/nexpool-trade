@@ -664,7 +664,7 @@ function buildUserReply(
             ? "The operator paused mining. Balances are safe; no NEX accrues while paused."
             : capReached
               ? "Daily cap reached — accrual resumes at 00:00 UTC."
-              : "Accrual is continuous and server-timed. There is no start/stop session to manage.",
+              : "Accrual runs only while the NEXPOOL Mini App is open and heartbeating. Leaving stops the session within 60 seconds. Open /app and tap Start mining.",
       ].join("\n");
       break;
     }
@@ -945,7 +945,7 @@ function buildUserReply(
       body = [
         "NEXPOOL · RULES",
         "1. Rewards are backend-verified only; nothing is simulated.",
-        `2. Mining accrues continuously at the configured rate, capped at ${formatNex(account.dailyCapNex)} NEX per UTC day.`,
+        `2. Mining accrues only while the Mini App is open and heartbeating, capped at ${formatNex(account.dailyCapNex)} NEX per UTC day. Leaving stops the session within 60 seconds.`,
         `3. A referral counts after ${account.referrals.taskTarget} distinct verified tasks; withdrawals require ${account.referrals.target} qualified referrals.`,
         `4. NEX converts at the published reference rate ($${account.nexUsdRate.toFixed(2)} USD per NEX) while the reward pool is funded. It is not a guaranteed price.`,
         "5. Fraud, self-referrals, duplicates and unverified claims are rejected by the engine.",

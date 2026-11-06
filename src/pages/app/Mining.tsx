@@ -45,6 +45,7 @@ function countdown(ms: number) {
 export default function Mining() {
   const snapshot = useQuery(api.app.snapshot);
   const settle = useMutation(api.app.settleMiningNow);
+  const startMining = useMutation(api.app.startMining);
   const tick = useTick(1000);
   const [settling, setSettling] = useState(false);
 
@@ -71,6 +72,19 @@ export default function Mining() {
   const settleNow = async () => {
     setSettling(true);
     try {
+      if (!active) {
+        const result = await startMining();
+        if (result.status === "active" || result.status === "limit") {
+          toast.success(
+            result.status === "limit"
+              ? "Session started — today's cap is already reached."
+              : "Mining started. It runs only while this app is open.",
+          );
+        } else {
+          toast.error("Mining is paused by the operator or your account.");
+        }
+        return;
+      }
       const result = await settle();
       if (result.creditedNex > 0) {
         toast.success(`${formatNex(result.creditedNex)} NEX confirmed`);
@@ -147,7 +161,7 @@ export default function Mining() {
                   enabled={active}
                   className="text-foreground"
                 />{" "}
-                / {mining.todayLimitNex.toFixed(2)} NEX
+                / {formatNex(mining.todayLimitNex)} NEX
               </p>
             </div>
             <ProgressBar
@@ -171,7 +185,7 @@ export default function Mining() {
               />
               <Metric
                 label="Daily cap"
-                value={config.dailyLimitNex.toFixed(2)}
+                value={formatNex(config.dailyLimitNex)}
                 sub="NEX / day"
                 className="pl-3"
               />
@@ -186,11 +200,15 @@ export default function Mining() {
             <Button
               size="sm"
               onClick={settleNow}
-              disabled={settling || !active}
+              disabled={settling || mining.status === "restricted"}
               className="gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em]"
             >
               {settling ? <Spinner /> : <Pickaxe className="size-3.5" />}
-              {settling ? "Settling" : "Settle accrual"}
+              {settling
+                ? "Working"
+                : active
+                  ? "Settle accrual"
+                  : "Start mining"}
             </Button>
           </div>
         </div>
@@ -216,15 +234,19 @@ export default function Mining() {
                 ? "Daily limit reached"
                 : mining.status === "restricted"
                   ? "Mining unavailable — account restricted"
-                  : "Mining paused by the operator"}
+                  : mining.sessionActive
+                    ? "Mining paused by the operator"
+                    : "Mining session idle"}
             </p>
             <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
               {mining.status === "limit"
-                ? `You have mined the full ${config.dailyLimitNex} NEX allowance for today. Accrual resumes automatically at 00:00 UTC in ${countdown(remainingMs)} — refreshing or changing your clock will not add NEX.`
+                ? `You have mined the full ${formatNex(config.dailyLimitNex)} NEX allowance for today. Accrual resumes automatically at 00:00 UTC in ${countdown(remainingMs)} — refreshing or changing your clock will not add NEX.`
                 : mining.status === "restricted"
                   ? snapshot.account.restrictionReason ||
                     "Contact support. Accrual is frozen while the restriction is in place."
-                  : "The mining engine is paused. Accrual restarts from the moment the operator re-enables it."}
+                  : mining.sessionActive
+                    ? "The mining engine is paused. Accrual restarts from the moment the operator re-enables it."
+                    : "Tap Start mining. Accrual runs only while this app is open and visible, and stops within 60 seconds of leaving."}
             </p>
           </div>
         </div>
@@ -345,7 +367,7 @@ export default function Mining() {
               },
               {
                 label: "Daily cap",
-                value: `${config.dailyLimitNex} NEX`,
+                value: `${formatNex(config.dailyLimitNex)} NEX`,
                 icon: Zap,
               },
               {
@@ -372,9 +394,9 @@ export default function Mining() {
           </div>
           <div className="mt-3 rounded-sm border border-border/70 bg-panel/50 p-2.5">
             <p className="text-[10px] leading-relaxed text-muted-foreground">
-              Rewards are accrued from the last confirmed server timestamp and the
-              configured rate. The backend caps each UTC day; the live counter is
-              display-only. There is no client-side reward calculation.
+              Rewards accrue only during a live, heartbeated session while the
+              Mini App is open. The backend caps each UTC day; the live counter
+              is display-only. There is no client-side reward calculation.
             </p>
           </div>
         </Panel>
@@ -395,7 +417,7 @@ export default function Mining() {
             <EmptyState
               icon={<Pickaxe className="size-4" />}
               title="No settlements yet"
-              body="Your first confirmed accrual appears here after the backend settles elapsed mining time."
+              body="Your first confirmed accrual appears here after the backend credits a live mining session."
             />
           </div>
         ) : (

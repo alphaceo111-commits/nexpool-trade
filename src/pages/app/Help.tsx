@@ -12,6 +12,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { api } from "@/convex/_generated/api";
+import { formatNex } from "@/components/app/parts";
 import {
   Metric,
   Panel,
@@ -25,7 +26,7 @@ import { cn } from "@/lib/utils";
 const FAQ = [
   {
     q: "How does mining actually accrue?",
-    a: "The backend settles elapsed server time against your effective rate, enforces the UTC daily cap, and writes one ledger entry per settlement. The counter on the Mining tab is a visual estimate between settlements — the ledger is authoritative.",
+    a: "Mining accrues only while the Mini App is open and sending presence heartbeats. The backend credits the elapsed session against your effective rate, enforces the UTC daily cap, and writes the confirmed ledger total. Leaving stops accrual within 60 seconds; the ledger is authoritative.",
   },
   {
     q: "Why hasn't my referral counted?",
@@ -109,7 +110,7 @@ export default function Help() {
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               <Metric
                 label="Daily cap"
-                value={snapshot.config.dailyLimitNex.toFixed(4)}
+                value={formatNex(snapshot.config.dailyLimitNex)}
                 sub="NEX / UTC day"
               />
               <Metric

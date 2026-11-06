@@ -59,6 +59,31 @@ export const applyTikTokLevelGate = internalMutation({
   },
 });
 
+/** Applies the ultra-slow launch rate and the 0.000006000 NEX daily cap. */
+export const applyNanoMiningScale = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const row = await ctx.db
+      .query("appConfig")
+      .withIndex("by_key", (q) => q.eq("key", CONFIG_KEY))
+      .first();
+    if (!row) return { patched: false, reason: "no config row yet" };
+    await ctx.db.patch(row._id, {
+      baseRateNexPerHour: CONFIG_DEFAULTS.baseRateNexPerHour,
+      dailyLimitNex: CONFIG_DEFAULTS.dailyLimitNex,
+      updatedAt: Date.now(),
+      updatedBy: "nano-mining-scale",
+    });
+    return {
+      patched: true,
+      previousRate: row.baseRateNexPerHour,
+      previousLimit: row.dailyLimitNex,
+      baseRateNexPerHour: CONFIG_DEFAULTS.baseRateNexPerHour,
+      dailyLimitNex: CONFIG_DEFAULTS.dailyLimitNex,
+    };
+  },
+});
+
 /** Lowers the persisted UTC-day mining cap to the nano-NEX launch scale. */
 export const applyDailyLimit = internalMutation({
   args: {},

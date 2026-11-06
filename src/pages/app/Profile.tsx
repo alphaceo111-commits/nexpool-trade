@@ -382,7 +382,7 @@ function ProfileView({ snapshot }: { snapshot: Snapshot }) {
               </AccordionTrigger>
               <AccordionContent className="text-[10.5px] leading-relaxed text-muted-foreground">
                 Mining accrues at the configured server rate up to{" "}
-                {config.dailyLimitNex} NEX per UTC day. The published target value
+                {formatNex(config.dailyLimitNex)} NEX per UTC day. The published target value
                 is {`$${config.nexUsdRate.toFixed(2)}`} per NEX, but redemption is
                 subject to verified activity, compliance checks and funding of the
                 reward pool. It is not a guaranteed exchange rate.

@@ -3,6 +3,17 @@ import { useMutation, useQuery } from "convex/react";
 import { Link } from "react-router";
 import { toast } from "sonner";
 import {
+  Area,
+  Bar,
+  CartesianGrid,
+  ComposedChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { showRewardedAd } from "@/lib/monetag";
+import {
   ArrowUpRight,
   BadgeCheck,
   Bell,
@@ -11,10 +22,13 @@ import {
   Gauge as GaugeIcon,
   ListChecks,
   Pickaxe,
+  Play,
   ShieldCheck,
+  TrendingUp,
   Users,
   Wallet,
 } from "lucide-react";
+import { useEffect, useState } from "react";
 import {
   formatDateTime,
   formatNex,
@@ -27,6 +41,7 @@ import {
   StatusPill,
 } from "@/components/app/parts";
 import { CopyButton } from "@/components/app/parts";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 function MiningDial({
@@ -93,8 +108,110 @@ function MiningDial({
           />
         </p>
         <p className="num mt-0.5 text-[9px] text-muted-foreground">
-          / {capNex.toFixed(2)} NEX
+          / {formatNex(capNex)} NEX
         </p>
+      </div>
+    </div>
+  );
+}
+
+type NexChartPoint = {
+  day: string;
+  amountNex: number;
+  cumulativeNex: number;
+};
+
+function NexChart({
+  data,
+  ratePerHour,
+}: {
+  data: NexChartPoint[];
+  ratePerHour: number;
+}) {
+  const rows = data.length
+    ? data
+    : [{ day: "today", amountNex: 0, cumulativeNex: 0 }];
+  return (
+    <div>
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <p className="num text-2xl font-semibold text-gold">
+            {formatNex(ratePerHour)}
+            <span className="ml-1 font-mono text-[9px] font-normal uppercase tracking-[0.12em] text-muted-foreground">
+              NEX/h
+            </span>
+          </p>
+          <p className="mt-0.5 font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground">
+            confirmed mining curve · last 7 UTC days
+          </p>
+        </div>
+        <span className="flex items-center gap-1 border border-border px-2 py-1 font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
+          <TrendingUp className="size-3 text-primary" /> ledger data
+        </span>
+      </div>
+      <div className="mt-3 h-[220px] w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart
+            data={rows}
+            margin={{ top: 8, right: 4, bottom: 0, left: 0 }}
+          >
+            <defs>
+              <linearGradient id="nex-curve" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="var(--gold)" stopOpacity={0.32} />
+                <stop offset="100%" stopColor="var(--gold)" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid
+              stroke="var(--border)"
+              strokeDasharray="2 4"
+              vertical={false}
+            />
+            <XAxis
+              dataKey="day"
+              tickFormatter={(value: string) => value.slice(5)}
+              tick={{ fontSize: 9, fill: "var(--muted-foreground)" }}
+              axisLine={false}
+              tickLine={false}
+            />
+            <YAxis
+              yAxisId="cumulative"
+              width={72}
+              tickFormatter={(value: number) =>
+                value === 0 ? "0" : value.toExponential(1)
+              }
+              tick={{ fontSize: 9, fill: "var(--muted-foreground)" }}
+              axisLine={false}
+              tickLine={false}
+            />
+            <YAxis yAxisId="daily" orientation="right" hide />
+            <Tooltip
+              contentStyle={{
+                background: "var(--card)",
+                border: "1px solid var(--border)",
+                borderRadius: 2,
+                fontSize: 11,
+              }}
+              labelFormatter={(label) => `UTC ${String(label)}`}
+              formatter={(value) => [formatNex(Number(value)), "NEX"]}
+            />
+            <Bar
+              yAxisId="daily"
+              dataKey="amountNex"
+              fill="var(--primary)"
+              opacity={0.2}
+              radius={[2, 2, 0, 0]}
+            />
+            <Area
+              yAxisId="cumulative"
+              type="monotone"
+              dataKey="cumulativeNex"
+              stroke="var(--gold)"
+              fill="url(#nex-curve)"
+              strokeWidth={2}
+              dot={false}
+            />
+          </ComposedChart>
+        </ResponsiveContainer>
       </div>
     </div>
   );
@@ -103,6 +220,33 @@ function MiningDial({
 export default function Home() {
   const snapshot = useQuery(api.app.snapshot);
   const settle = useMutation(api.app.settleMiningNow);
+  const startMining = useMutation(api.app.startMining);
+  const [adReady, setAdReady] = useState(false);
+  const [adBusy, setAdBusy] = useState(false);
+  const miningStatus = snapshot?.mining.status;
+
+  useEffect(() => {
+    if (miningStatus !== "active") {
+      const reset = window.setTimeout(() => setAdReady(false), 0);
+      return () => window.clearTimeout(reset);
+    }
+    // A sponsored break becomes available every five minutes of live mining.
+    const id = window.setInterval(() => setAdReady(true), 5 * 60_000);
+    return () => window.clearInterval(id);
+  }, [miningStatus]);
+
+  const watchHomeAd = async () => {
+    if (adBusy) return;
+    setAdBusy(true);
+    const result = await showRewardedAd();
+    setAdBusy(false);
+    if (result.ok) {
+      setAdReady(false);
+      toast.success("Sponsored break finished. Mining stayed live.");
+    } else {
+      toast.error(result.reason);
+    }
+  };
 
   if (!snapshot) {
     return (
@@ -138,6 +282,19 @@ export default function Home() {
 
   const handleMine = async () => {
     try {
+      if (!active) {
+        const started = await startMining();
+        if (started.status === "active" || started.status === "limit") {
+          toast.success(
+            started.status === "limit"
+              ? "Mining session started, but today's cap is already reached."
+              : "Mining started. It runs only while this app is open.",
+          );
+        } else {
+          toast.error("Mining is paused by the operator or your account.");
+        }
+        return;
+      }
       const result = await settle();
       if (result.creditedNex > 0) {
         toast.success(
@@ -274,11 +431,27 @@ export default function Home() {
         </Panel>
       </div>
 
+      <Panel
+        eyebrow="NEX chart"
+        title="Mining curve"
+        action={
+          <span className="flex items-center gap-1 font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
+            <TrendingUp className="size-3 text-primary" /> live ledger
+          </span>
+        }
+      >
+        <NexChart data={snapshot.miningChart} ratePerHour={speed.total} />
+        <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground">
+          Curve is built from confirmed backend mining entries, not a synthetic
+          market price. Daily bars show NEX credited per UTC day.
+        </p>
+      </Panel>
+
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <QuickAction
           icon={Pickaxe}
-          label="Mine now"
-          hint="Settle accrual"
+          label={active ? "Mine now" : "Start mining"}
+          hint={active ? "Settle accrual" : "Runs while open"}
           onClick={handleMine}
           primary
         />
@@ -301,6 +474,35 @@ export default function Home() {
           to="/app/wallet"
         />
       </div>
+
+      {active && adReady ? (
+        <Panel
+          eyebrow="Sponsored break"
+          title="Watch while mining continues"
+          action={<StatusPill tone="warn">every 5 min</StatusPill>}
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-[12px] font-medium">
+                A rewarded sponsor ad is ready.
+              </p>
+              <p className="mt-1 text-[10.5px] leading-relaxed text-muted-foreground">
+                The ad supports NEXPOOL. It grants no NEX and does not replace
+                the verified ad task — your mining session keeps running.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              onClick={watchHomeAd}
+              disabled={adBusy}
+              className="shrink-0 gap-1.5 font-mono text-[10px] uppercase tracking-[0.1em]"
+            >
+              <Play className="size-3.5" />
+              {adBusy ? "Opening…" : "Watch ad"}
+            </Button>
+          </div>
+        </Panel>
+      ) : null}
 
       <div className="grid gap-3.5 lg:grid-cols-12">
         <Panel
@@ -570,9 +772,9 @@ export default function Home() {
       <div className="flex items-start gap-2.5 rounded-md border border-border/70 bg-panel/60 px-3.5 py-3">
         <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" />
         <p className="text-[10.5px] leading-relaxed text-muted-foreground">
-          Mining is credited by the backend from server timestamps. Changing your
-          device clock or refreshing the app does not create earnings. Daily cap
-          resets at 00:00 UTC.
+          Mining runs only while this Mini App is open and visible. Leaving or
+          closing stops accrual within 60 seconds; changing your device clock
+          does not create earnings. Daily cap resets at 00:00 UTC.
         </p>
       </div>
     </div>

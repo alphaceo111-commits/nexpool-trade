@@ -11,6 +11,7 @@ import {
   requireAdmin,
   roundNex,
 } from "./engine";
+import { telegramAdminIds } from "./auth/telegram";
 
 const taskCategory = v.union(
   v.literal("advertisement"),
@@ -34,7 +35,14 @@ export const access = query({
   args: {},
   handler: async (ctx) => {
     const userId = await getAuthUserId(ctx);
-    if (!userId) return { signedIn: false, isAdmin: false, canClaim: false };
+    if (!userId) {
+      return {
+        signedIn: false,
+        isAdmin: false,
+        canClaim: false,
+        telegramAdminAllowlistConfigured: telegramAdminIds().length > 0,
+      };
+    }
     const config = await loadConfig(ctx);
     const user = await ctx.db.get(userId);
     const admins = (await ctx.db.query("users").collect()).filter(
@@ -47,6 +55,7 @@ export const access = query({
       canClaim: !isAdmin && !config.ownerUserId && admins.length === 0,
       email: user?.email ?? null,
       ownerConfigured: Boolean(config.ownerUserId),
+      telegramAdminAllowlistConfigured: telegramAdminIds().length > 0,
     };
   },
 });

@@ -6,7 +6,7 @@ import {
   internalAction,
   internalMutation,
 } from "./_generated/server";
-import { verifyTelegramInitData } from "./auth/telegram";
+import { telegramAdminIds, verifyTelegramInitData } from "./auth/telegram";
 import { ensureAccount } from "./engine";
 
 /**
@@ -92,6 +92,16 @@ export const attachIdentity = internalMutation({
       username: args.username?.slice(0, 32) ?? profile.username,
       photoUrl: args.photoUrl ?? profile.photoUrl,
     });
+
+    // The provider sets this at account creation too, but existing accounts
+    // created before the allowlist was configured must be promoted here. This
+    // is server-side only; a Telegram username is never treated as a role.
+    if (telegramAdminIds().includes(args.telegramId)) {
+      const user = await ctx.db.get(profile.userId);
+      if (user?.role !== "admin") {
+        await ctx.db.patch(profile.userId, { role: "admin" });
+      }
+    }
 
     return { telegramId: args.telegramId };
   },

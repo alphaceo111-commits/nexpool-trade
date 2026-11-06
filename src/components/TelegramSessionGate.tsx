@@ -29,6 +29,7 @@ export function TelegramSessionGate({ children }: { children: ReactNode }) {
   const user = useQuery(api.users.currentUser);
   const { signIn } = useAuthActions();
   const linkTelegram = useAction(api.telegram.linkTelegram);
+  const telegramPresent = Boolean(getTelegram());
   const attempted = useRef<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -41,6 +42,10 @@ export function TelegramSessionGate({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (isLoading) return;
     const initData = getTelegram()?.initData ?? "";
+    // Do not silently create an anonymous account when this page is running
+    // inside Telegram but the webview did not provide signed initData. That is
+    // a launch/configuration problem the operator must see and fix.
+    if (telegramPresent && !initData && !isAuthenticated) return;
     if (isAuthenticated) {
       if (user === undefined) return;
       // An anonymous preview session that is now running inside Telegram is
@@ -61,18 +66,23 @@ export function TelegramSessionGate({ children }: { children: ReactNode }) {
       ? signIn("telegram", { initData }).then(async () => {
           // The auth provider creates the user; this action writes the verified
           // Telegram profile (name, @handle, avatar, chat id) onto the NEXPOOL
-          // account. Retried briefly while the fresh session propagates.
-          for (let attemptIndex = 0; attemptIndex < 5; attemptIndex += 1) {
+          // account. Retried while the fresh session propagates.
+          let lastReason =
+            "The verified Telegram identity could not be attached to this account.";
+          for (let attemptIndex = 0; attemptIndex < 6; attemptIndex += 1) {
             try {
               const result = await linkTelegram({ initData });
               if (result.linked) return;
-            } catch {
-              /* session may not be visible to the next request yet */
+              lastReason = result.reason ?? lastReason;
+            } catch (cause) {
+              lastReason =
+                cause instanceof Error ? cause.message : lastReason;
             }
             await new Promise((resolve) =>
               window.setTimeout(resolve, 400 * (attemptIndex + 1)),
             );
           }
+          throw new Error(`Telegram account linking failed: ${lastReason}`);
         })
       : signIn("anonymous");
 
@@ -87,7 +97,27 @@ export function TelegramSessionGate({ children }: { children: ReactNode }) {
       .finally(() => window.clearTimeout(timer));
 
     return () => window.clearTimeout(timer);
-  }, [isLoading, isAuthenticated, user, attempt, signIn, linkTelegram]);
+  }, [isLoading, isAuthenticated, user, attempt, signIn, linkTelegram, telegramPresent]);
+
+  if (!isLoading && telegramPresent && !isAuthenticated && !getTelegram()?.initData) {
+    return (
+      <SessionScreen
+        eyebrow="AUTH · TELEGRAM"
+        title="Telegram session missing"
+        body="This page is running inside Telegram, but Telegram did not provide signed initData. Open NEXPOOL from @NEXPOOLBOT's menu button or its Open App button instead of a copied browser link."
+        footer={
+          <div className="space-y-2">
+            <Button className="w-full" onClick={() => window.location.reload()}>
+              Retry Telegram launch
+            </Button>
+            <p className="font-mono text-[10px] leading-relaxed uppercase tracking-[0.1em] text-muted-foreground">
+              No anonymous account or balance is created while this is unresolved.
+            </p>
+          </div>
+        }
+      />
+    );
+  }
 
   if (error) {
     return (

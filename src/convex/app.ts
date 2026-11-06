@@ -3,6 +3,7 @@ import { mutation, query } from "./_generated/server";
 import {
   computeSpeed,
   ensureAccount,
+  heartbeatMiningSession,
   listReferralRows,
   loadConfig,
   notifyUser,
@@ -10,6 +11,8 @@ import {
   requireProfile,
   roundNex,
   settleMining,
+  startMiningSession,
+  stopMiningSession,
 } from "./engine";
 import { getViewer } from "./engine";
 import { claimedLevel, seedLevels } from "./levels";
@@ -120,6 +123,19 @@ export const snapshot = query({
       .withIndex("by_user_createdAt", (q) => q.eq("userId", profile.userId))
       .order("desc")
       .take(24);
+    let chartRunning = 0;
+    const miningChart = [...miningRows]
+      .reverse()
+      .slice(-7)
+      .map((row) => {
+        chartRunning = roundNex(chartRunning + row.amountNex);
+        return {
+          day: row.day,
+          amountNex: roundNex(row.amountNex),
+          cumulativeNex: chartRunning,
+          rateNexPerHour: row.rateNexPerHour,
+        };
+      });
 
     const minUsd = roundNex(config.minWithdrawNex * config.nexUsdRate);
     const treasuryCoversMinimum = config.treasuryAvailableUsd >= minUsd;
@@ -305,6 +321,7 @@ export const snapshot = query({
         toTs: row.toTs,
         createdAt: row.createdAt,
       })),
+      miningChart,
       notifications: {
         unread: notificationRows.filter((row) => !row.readAt).length,
         rows: notificationRows.slice(0, 12).map((row) => ({
@@ -331,7 +348,40 @@ export const snapshot = query({
   },
 });
 
-/** Server-authoritative settlement. Safe to call repeatedly. */
+/** Starts a presence-tracked mining session when the Mini App opens. */
+export const startMining = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const { profile, balance } = await requireProfile(ctx);
+    const config = await loadConfig(ctx);
+    const speed = await computeSpeed(ctx, profile, config);
+    return await startMiningSession(ctx, profile, balance, config, speed);
+  },
+});
+
+/** Keeps the session alive while the app is visible. */
+export const heartbeatMining = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const { profile, balance } = await requireProfile(ctx);
+    const config = await loadConfig(ctx);
+    const speed = await computeSpeed(ctx, profile, config);
+    return await heartbeatMiningSession(ctx, profile, balance, config, speed);
+  },
+});
+
+/** Stops accrual when the app is hidden or closed. */
+export const stopMining = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const { profile, balance } = await requireProfile(ctx);
+    const config = await loadConfig(ctx);
+    const speed = await computeSpeed(ctx, profile, config);
+    return await stopMiningSession(ctx, profile, balance, config, speed);
+  },
+});
+
+/** Manual settlement; only credits the current presence window. */
 export const settleMiningNow = mutation({
   args: {},
   handler: async (ctx) => {

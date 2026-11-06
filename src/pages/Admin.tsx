@@ -105,7 +105,9 @@ export default function Admin() {
         body={
           access.canClaim
             ? "No operator is configured on this deployment. The first signed-in account can claim the console once; the action is audited."
-            : "This account is not authorized for admin mutations. Ask the configured operator to grant access in the backend."
+            : access.telegramAdminAllowlistConfigured
+              ? "A Telegram admin allowlist is configured, but this Telegram account is not on it. Sign in from the allowlisted Telegram account or update ADMIN_TELEGRAM_ID in the Keys tab."
+              : "This account is not authorized for admin mutations. No Telegram admin allowlist is configured; the existing operator must grant the role in the backend."
         }
         action={
           access.canClaim ? (
@@ -150,8 +152,14 @@ export default function Admin() {
             <ShieldCheck className="size-3" /> authorized operator
           </span>
           <Link
-            to="/admin/bot"
+            to="/admin/telegram"
             className="hidden items-center gap-1 font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground hover:text-foreground sm:flex"
+          >
+            Telegram Center <ArrowUpRight className="size-3" />
+          </Link>
+          <Link
+            to="/admin/bot"
+            className="hidden items-center gap-1 font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground hover:text-foreground xl:flex"
           >
             Bot desk <ArrowUpRight className="size-3" />
           </Link>

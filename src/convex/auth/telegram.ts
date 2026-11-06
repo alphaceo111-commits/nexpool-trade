@@ -124,6 +124,18 @@ export async function verifyTelegramInitData(
 
 export const TELEGRAM_PROVIDER_ID = "telegram";
 
+/** Telegram ids the operator allowlisted for backend admin access. */
+export function telegramAdminIds(): string[] {
+  return (
+    process.env.ADMIN_TELEGRAM_ID ??
+    process.env.TELEGRAM_ADMIN_ID ??
+    process.env.TELEGRAM_OWNER_ID ??
+    ""
+  )
+    .split(/[\s,]+/)
+    .filter(Boolean);
+}
+
 /**
  * Telegram is the only real sign-in for NEXPOOL. The authorizing identity is
  * the verified telegramId, so the same Telegram account always resolves to the
@@ -144,17 +156,7 @@ export const telegramAuth = ConvexCredentials({
     if (!check.ok) throw new Error(check.reason);
 
     const { identity } = check;
-    // Owner ids may be provided under either name; both accept a comma or
-    // space separated list.
-    const ownerIds = (
-      process.env.ADMIN_TELEGRAM_ID ??
-      process.env.TELEGRAM_ADMIN_ID ??
-      process.env.TELEGRAM_OWNER_ID ??
-      ""
-    )
-      .split(/[\s,]+/)
-      .filter(Boolean);
-    const isOwner = ownerIds.includes(identity.telegramId);
+    const isOwner = telegramAdminIds().includes(identity.telegramId);
     const displayName =
       [identity.firstName, identity.lastName].filter(Boolean).join(" ").trim() ||
       identity.username ||

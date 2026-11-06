@@ -37,10 +37,10 @@ export type AppConfigShape = {
  * `appConfig`; after that the owner edits them in the admin console.
  */
 export const CONFIG_DEFAULTS: AppConfigShape = {
-  // Launch rate: 0.000000500 NEX/hour, i.e. 500,000 nano-NEX per hour.
-  baseRateNexPerHour: 0.0000005,
-  // Matches the nano-NEX scale of the launch rate: 0.00005 NEX per UTC day.
-  dailyLimitNex: 0.00005,
+  // Ultra-slow launch rate: 0.000000250 NEX/hour (250,000 nano-NEX/hour).
+  baseRateNexPerHour: 0.00000025,
+  // 0.000006000 NEX per UTC day — 24 hours at the base rate.
+  dailyLimitNex: 0.000006,
   nexUsdRate: 2.5,
   tonUsdRate: 5.2,
   minWithdrawNex: 1,
@@ -475,6 +475,168 @@ export async function projectAccrual(
   return { total, slices };
 }
 
+export const MINING_SESSION_GRACE_MS = 60_000;
+const MAX_SESSION_CREDIT_MS = 90_000;
+
+/** A session is live only while the app has heartbeated recently. */
+function miningSessionActive(profile: Doc<"profiles">, now: number) {
+  return Boolean(
+    profile.miningSessionStartedAt &&
+      profile.miningSessionHeartbeatAt &&
+      now - profile.miningSessionHeartbeatAt <= MINING_SESSION_GRACE_MS,
+  );
+}
+
+/**
+ * Credits at most the last 90 seconds of presence. This is deliberately
+ * conservative: a closed app or a missed visibility event can never earn the
+ * time it was away.
+ */
+async function creditMiningSession(
+  ctx: MutationCtx,
+  profile: Doc<"profiles">,
+  balance: Doc<"balances">,
+  config: AppConfigShape,
+  speed: SpeedModel,
+  now: number,
+) {
+  const from =
+    profile.miningSessionCreditedAt ?? profile.miningSessionHeartbeatAt ?? now;
+  const elapsed = Math.min(Math.max(0, now - from), MAX_SESSION_CREDIT_MS);
+  const day = dayKey(now);
+  const dayRow = await ctx.db
+    .query("miningDays")
+    .withIndex("by_user_day", (q) =>
+      q.eq("userId", profile.userId).eq("day", day),
+    )
+    .first();
+  const alreadyMined = dayRow?.minedNex ?? 0;
+  const remaining = Math.max(0, config.dailyLimitNex - alreadyMined);
+
+  if (remaining <= 0) {
+    await ctx.db.patch(profile._id, {
+      miningSessionHeartbeatAt: now,
+      miningSessionCreditedAt: now,
+    });
+    return { creditedNex: 0, status: "limit" as const };
+  }
+
+  const amount = roundNex(
+    Math.min((elapsed / 3_600_000) * speed.total, remaining),
+  );
+  if (amount <= 0) {
+    // Keep the credit timestamp so sub-nano time accumulates instead of being
+    // rounded away on every heartbeat.
+    await ctx.db.patch(profile._id, { miningSessionHeartbeatAt: now });
+    return { creditedNex: 0, status: "active" as const };
+  }
+
+  if (dayRow) {
+    await ctx.db.patch(dayRow._id, {
+      minedNex: roundNex(dayRow.minedNex + amount),
+      updatedAt: now,
+    });
+  } else {
+    await ctx.db.insert("miningDays", {
+      userId: profile.userId,
+      day,
+      minedNex: amount,
+      updatedAt: now,
+    });
+  }
+
+  const entry = await ctx.db
+    .query("miningEntries")
+    .withIndex("by_user_day", (q) =>
+      q.eq("userId", profile.userId).eq("day", day),
+    )
+    .first();
+  if (entry) {
+    await ctx.db.patch(entry._id, {
+      amountNex: roundNex(entry.amountNex + amount),
+      rateNexPerHour: speed.total,
+      toTs: now,
+    });
+  } else {
+    await ctx.db.insert("miningEntries", {
+      userId: profile.userId,
+      day,
+      amountNex: amount,
+      rateNexPerHour: speed.total,
+      fromTs: now - elapsed,
+      toTs: now,
+      createdAt: now,
+    });
+  }
+
+  // Keep one ledger row per UTC day instead of thousands of heartbeat rows.
+  const ledgerRef = `mining:${day}`;
+  const ledgerRow = await ctx.db
+    .query("ledger")
+    .withIndex("by_user_refId", (q) =>
+      q.eq("userId", profile.userId).eq("refId", ledgerRef),
+    )
+    .first();
+  if (ledgerRow) {
+    await ctx.db.patch(ledgerRow._id, {
+      amountNex: roundNex(ledgerRow.amountNex + amount),
+      memo: `Mining session · ${speed.total} NEX/h`,
+    });
+  } else {
+    await ctx.db.insert("ledger", {
+      userId: profile.userId,
+      kind: "mining",
+      amountNex: amount,
+      memo: `Mining session · ${speed.total} NEX/h`,
+      refId: ledgerRef,
+      createdAt: now,
+    });
+  }
+
+  await ctx.db.patch(balance._id, {
+    availableNex: roundNex(balance.availableNex + amount),
+    lifetimeMinedNex: roundNex(balance.lifetimeMinedNex + amount),
+    lastSettledAt: now,
+    updatedAt: now,
+  });
+  await ctx.db.patch(profile._id, {
+    miningSessionHeartbeatAt: now,
+    miningSessionCreditedAt: now,
+  });
+
+  const todayMined = roundNex(alreadyMined + amount);
+  if (todayMined >= config.dailyLimitNex && profile.notifyMining) {
+    const recentNotes = await ctx.db
+      .query("notifications")
+      .withIndex("by_user_createdAt", (q) => q.eq("userId", profile.userId))
+      .order("desc")
+      .take(30);
+    const alreadyNotified = recentNotes.some(
+      (note) =>
+        note.kind === "mining" &&
+        note.title === "Daily mining limit reached" &&
+        dayKey(note.createdAt) === day,
+    );
+    if (!alreadyNotified) {
+      await notifyUser(
+        ctx,
+        profile,
+        "mining",
+        "Daily mining limit reached",
+        `You mined your full ${config.dailyLimitNex} NEX for today. Accrual resumes at 00:00 UTC.`,
+      );
+    }
+  }
+
+  return {
+    creditedNex: amount,
+    status:
+      todayMined >= config.dailyLimitNex
+        ? ("limit" as const)
+        : ("active" as const),
+  };
+}
+
 export type MiningSnapshot = {
   status: "active" | "paused" | "limit" | "restricted";
   rateNexPerHour: number;
@@ -485,6 +647,7 @@ export type MiningSnapshot = {
   resetAt: number;
   lastSettledAt: number;
   uncollectedMs: number;
+  sessionActive: boolean;
 };
 
 export async function readMiningSnapshot(
@@ -503,33 +666,32 @@ export async function readMiningSnapshot(
     )
     .first();
   const alreadyMined = dayRow?.minedNex ?? 0;
-
-  const accrualFrom = Math.max(
-    balance.lastSettledAt,
-    config.miningEnabledAt || 0,
-  );
-  const paused = !config.miningEnabled || profile.restricted;
-  const projection = paused
-    ? { total: 0, slices: [] as AccrualSlice[] }
-    : await projectAccrual(ctx, {
-        userId: profile.userId,
-        rateNexPerHour: speed.total,
-        dailyLimitNex: config.dailyLimitNex,
-        from: accrualFrom,
-        to: now,
-      });
-
-  const todaySlice = projection.slices.find((slice) => slice.day === today);
-  const todayProjected = alreadyMined + (todaySlice?.amountNex ?? 0);
-  const todayMined = roundNex(Math.min(config.dailyLimitNex, todayProjected));
+  const todayMined = roundNex(Math.min(config.dailyLimitNex, alreadyMined));
   const remaining = roundNex(
     Math.max(0, config.dailyLimitNex - todayMined),
   );
+  const sessionActive = miningSessionActive(profile, now);
+  const pendingMs = sessionActive
+    ? Math.min(
+        Math.max(
+          0,
+          now -
+            (profile.miningSessionCreditedAt ??
+              profile.miningSessionHeartbeatAt ??
+              now),
+        ),
+        MAX_SESSION_CREDIT_MS,
+      )
+    : 0;
+  const pendingNex = sessionActive
+    ? roundNex(Math.min((pendingMs / 3_600_000) * speed.total, remaining))
+    : 0;
 
   let status: MiningSnapshot["status"] = "active";
   if (profile.restricted) status = "restricted";
   else if (!config.miningEnabled) status = "paused";
   else if (remaining <= 0) status = "limit";
+  else if (!sessionActive) status = "paused";
 
   return {
     status,
@@ -537,10 +699,11 @@ export async function readMiningSnapshot(
     todayMinedNex: todayMined,
     todayLimitNex: config.dailyLimitNex,
     remainingTodayNex: remaining,
-    projectedAccrualNex: projection.total,
+    projectedAccrualNex: pendingNex,
     resetAt: nextUtcMidnight(now),
     lastSettledAt: balance.lastSettledAt,
-    uncollectedMs: Math.max(0, now - accrualFrom),
+    uncollectedMs: pendingMs,
+    sessionActive,
   };
 }
 
@@ -557,133 +720,83 @@ export async function settleMining(
   speed: SpeedModel,
 ) {
   const now = Date.now();
-  const accrualFrom = Math.max(
-    balance.lastSettledAt,
-    config.miningEnabledAt || 0,
-  );
-
   if (!config.miningEnabled || profile.restricted || speed.total <= 0) {
-    await ctx.db.patch(balance._id, { lastSettledAt: now, updatedAt: now });
-    return { creditedNex: 0, status: profile.restricted ? "restricted" : "paused" };
+    return {
+      creditedNex: 0,
+      status: profile.restricted ? ("restricted" as const) : ("paused" as const),
+    };
   }
+  if (!miningSessionActive(profile, now)) {
+    return { creditedNex: 0, status: "paused" as const };
+  }
+  return await creditMiningSession(ctx, profile, balance, config, speed, now);
+}
 
-  const projection = await projectAccrual(ctx, {
-    userId: profile.userId,
-    rateNexPerHour: speed.total,
-    dailyLimitNex: config.dailyLimitNex,
-    from: accrualFrom,
-    to: now,
+/** Starts a fresh presence-tracked mining session; no historical gap is paid. */
+export async function startMiningSession(
+  ctx: MutationCtx,
+  profile: Doc<"profiles">,
+  balance: Doc<"balances">,
+  config: AppConfigShape,
+  speed: SpeedModel,
+) {
+  const now = Date.now();
+  if (!config.miningEnabled) {
+    return { creditedNex: 0, status: "paused" as const };
+  }
+  if (profile.restricted) {
+    return { creditedNex: 0, status: "restricted" as const };
+  }
+  if (miningSessionActive(profile, now)) {
+    return await creditMiningSession(ctx, profile, balance, config, speed, now);
+  }
+  await ctx.db.patch(profile._id, {
+    miningSessionStartedAt: now,
+    miningSessionHeartbeatAt: now,
+    miningSessionCreditedAt: now,
   });
+  return { creditedNex: 0, status: "active" as const };
+}
 
-  if (projection.total <= 0) {
-    // At launch rates a few seconds of accrual is less than one nano-NEX.
-    // Leave lastSettledAt untouched so the residual carries into the next
-    // settlement instead of being rounded away on every refresh.
-    const today = dayKey(now);
-    const dayRow = await ctx.db
-      .query("miningDays")
-      .withIndex("by_user_day", (q) =>
-        q.eq("userId", profile.userId).eq("day", today),
-      )
-      .first();
-    const reachedLimit = (dayRow?.minedNex ?? 0) >= config.dailyLimitNex;
-    return { creditedNex: 0, status: reachedLimit ? "limit" : "active" };
+/** Keeps the session alive and credits only the elapsed presence window. */
+export async function heartbeatMiningSession(
+  ctx: MutationCtx,
+  profile: Doc<"profiles">,
+  balance: Doc<"balances">,
+  config: AppConfigShape,
+  speed: SpeedModel,
+) {
+  if (!miningSessionActive(profile, Date.now())) {
+    return await startMiningSession(ctx, profile, balance, config, speed);
   }
-
-  for (const slice of projection.slices) {
-    if (slice.amountNex <= 0) continue;
-    const existing = await ctx.db
-      .query("miningDays")
-      .withIndex("by_user_day", (q) =>
-        q.eq("userId", profile.userId).eq("day", slice.day),
-      )
-      .first();
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        minedNex: roundNex(existing.minedNex + slice.amountNex),
-        updatedAt: now,
-      });
-    } else {
-      await ctx.db.insert("miningDays", {
-        userId: profile.userId,
-        day: slice.day,
-        minedNex: slice.amountNex,
-        updatedAt: now,
-      });
-    }
-    const entry = await ctx.db
-      .query("miningEntries")
-      .withIndex("by_user_day", (q) =>
-        q.eq("userId", profile.userId).eq("day", slice.day),
-      )
-      .first();
-    if (entry) {
-      // One settled entry per UTC day keeps the history readable.
-      await ctx.db.patch(entry._id, {
-        amountNex: roundNex(entry.amountNex + slice.amountNex),
-        rateNexPerHour: speed.total,
-        toTs: now,
-      });
-    } else {
-      await ctx.db.insert("miningEntries", {
-        userId: profile.userId,
-        day: slice.day,
-        amountNex: slice.amountNex,
-        rateNexPerHour: speed.total,
-        fromTs: accrualFrom,
-        toTs: now,
-        createdAt: now,
-      });
-    }
+  const now = Date.now();
+  if (!config.miningEnabled || profile.restricted || speed.total <= 0) {
+    return {
+      creditedNex: 0,
+      status: profile.restricted ? ("restricted" as const) : ("paused" as const),
+    };
   }
+  return await creditMiningSession(ctx, profile, balance, config, speed, now);
+}
 
-  const credit = projection.total;
-  await ctx.db.insert("ledger", {
-    userId: profile.userId,
-    kind: "mining",
-    amountNex: credit,
-    memo: `Mining settlement · ${roundNex(speed.total)} NEX/h`,
-    createdAt: now,
+/** Stops the session when the app is hidden or closed. */
+export async function stopMiningSession(
+  ctx: MutationCtx,
+  profile: Doc<"profiles">,
+  balance: Doc<"balances">,
+  config: AppConfigShape,
+  speed: SpeedModel,
+) {
+  const now = Date.now();
+  const result = miningSessionActive(profile, now)
+    ? await creditMiningSession(ctx, profile, balance, config, speed, now)
+    : { creditedNex: 0, status: "paused" as const };
+  await ctx.db.patch(profile._id, {
+    miningSessionStartedAt: undefined,
+    miningSessionHeartbeatAt: undefined,
+    miningSessionCreditedAt: undefined,
   });
-  await ctx.db.patch(balance._id, {
-    availableNex: roundNex(balance.availableNex + credit),
-    lifetimeMinedNex: roundNex(balance.lifetimeMinedNex + credit),
-    lastSettledAt: now,
-    updatedAt: now,
-  });
-
-  const todayRow = await ctx.db
-    .query("miningDays")
-    .withIndex("by_user_day", (q) =>
-      q.eq("userId", profile.userId).eq("day", dayKey(now)),
-    )
-    .first();
-  const hitLimit = (todayRow?.minedNex ?? 0) >= config.dailyLimitNex;
-
-  if (hitLimit && profile.notifyMining) {
-    const existingLimitNote = await ctx.db
-      .query("notifications")
-      .withIndex("by_user_createdAt", (q) => q.eq("userId", profile.userId))
-      .order("desc")
-      .take(30);
-    const alreadyNotified = existingLimitNote.some(
-      (note) =>
-        note.kind === "mining" &&
-        note.title === "Daily mining limit reached" &&
-        dayKey(note.createdAt) === dayKey(now),
-    );
-    if (!alreadyNotified) {
-      await notifyUser(
-        ctx,
-        profile,
-        "mining",
-        "Daily mining limit reached",
-        `You mined your full ${config.dailyLimitNex} NEX for today. Accrual resumes at ${new Date(nextUtcMidnight(now)).toISOString().slice(11, 16)} UTC.`,
-      );
-    }
-  }
-
-  return { creditedNex: credit, status: hitLimit ? "limit" : "active" };
+  return result;
 }
 
 // ---------------------------------------------------------------------------

@@ -209,7 +209,9 @@ export default function AppShell() {
   const location = useLocation();
   const snapshot = useQuery(api.app.snapshot);
   const ensure = useMutation(api.app.ensure);
-  const settle = useMutation(api.app.settleMiningNow);
+  const startMining = useMutation(api.app.startMining);
+  const heartbeatMining = useMutation(api.app.heartbeatMining);
+  const stopMining = useMutation(api.app.stopMining);
   const linkTelegram = useAction(api.telegram.linkTelegram);
   const booting = useRef(false);
   const [bootError, setBootError] = useState<string | null>(null);
@@ -222,8 +224,9 @@ export default function AppShell() {
     await ensure({
       referralCode: code ?? undefined,
     });
-    // Materialise any accrual immediately; the backend remains authoritative.
-    await settle().catch(() => undefined);
+    // Mining runs only while this Mini App is open and visible. Starting here
+    // also prevents a closed app from earning the time it was away.
+    await startMining().catch(() => undefined);
   };
 
   useEffect(() => {
@@ -243,19 +246,26 @@ export default function AppShell() {
   useEffect(() => {
     const id = window.setInterval(() => {
       if (document.visibilityState !== "visible") return;
-      settle().catch(() => undefined);
-    }, 300_000);
-    const onVisible = () => {
+      heartbeatMining().catch(() => undefined);
+    }, 30_000);
+    const onVisibility = () => {
       if (document.visibilityState === "visible") {
-        settle().catch(() => undefined);
+        heartbeatMining().catch(() => undefined);
+      } else {
+        stopMining().catch(() => undefined);
       }
     };
-    document.addEventListener("visibilitychange", onVisible);
+    const onPageHide = () => {
+      stopMining().catch(() => undefined);
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", onPageHide);
     return () => {
       window.clearInterval(id);
-      document.removeEventListener("visibilitychange", onVisible);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", onPageHide);
     };
-  }, [settle]);
+  }, [heartbeatMining, stopMining]);
 
   // Keeps the NEXPOOL profile bound to the verified Telegram identity. It
   // retries while the session settles and stops as soon as the snapshot reports

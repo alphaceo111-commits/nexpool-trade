@@ -187,6 +187,11 @@ const schema = defineSchema(
       complianceCleared: v.boolean(),
       // Lifetime XP from verified activities; levels can never skip a claim.
       xp: v.optional(v.number()),
+      // Presence-tracked mining session. Accrual only runs while the Mini App
+      // is open and heartbeating; leaving the app stops the session.
+      miningSessionStartedAt: v.optional(v.number()),
+      miningSessionHeartbeatAt: v.optional(v.number()),
+      miningSessionCreditedAt: v.optional(v.number()),
       createdAt: v.number(),
     })
       .index("by_user", ["userId"])
@@ -246,7 +251,8 @@ const schema = defineSchema(
       createdAt: v.number(),
     })
       .index("by_user_createdAt", ["userId", "createdAt"])
-      .index("by_createdAt", ["createdAt"]),
+      .index("by_createdAt", ["createdAt"])
+      .index("by_user_refId", ["userId", "refId"]),
 
     // Sponsor campaigns. Rewards only settle after verification.
     tasks: defineTable({
@@ -423,6 +429,124 @@ const schema = defineSchema(
       memo: v.string(),
       createdAt: v.number(),
     }).index("by_user_createdAt", ["userId", "createdAt"]),
+
+    // Telegram Control Center: connected groups/channels and their real
+    // Telegram-reported permissions. Never assume a bot can publish.
+    telegramDestinations: defineTable({
+      chatId: v.string(),
+      title: v.string(),
+      username: v.optional(v.string()),
+      type: v.union(
+        v.literal("group"),
+        v.literal("supergroup"),
+        v.literal("channel"),
+      ),
+      status: v.union(v.literal("connected"), v.literal("error")),
+      botStatus: v.string(),
+      isAdmin: v.boolean(),
+      memberCount: v.optional(v.number()),
+      permissions: v.object({
+        canPostMessages: v.boolean(),
+        canEditMessages: v.boolean(),
+        canDeleteMessages: v.boolean(),
+        canChangeInfo: v.boolean(),
+        canInviteUsers: v.boolean(),
+        canPinMessages: v.boolean(),
+        canRestrictMembers: v.boolean(),
+        canPromoteMembers: v.boolean(),
+        canManageTopics: v.boolean(),
+      }),
+      lastError: v.optional(v.string()),
+      lastCheckedAt: v.number(),
+      addedBy: v.string(),
+      createdAt: v.number(),
+    })
+      .index("by_chatId", ["chatId"])
+      .index("by_type", ["type"]),
+
+    // One row per composed post. Status is explicit so retries cannot double-send.
+    telegramPosts: defineTable({
+      title: v.string(),
+      text: v.string(),
+      parseMode: v.union(
+        v.literal("HTML"),
+        v.literal("MarkdownV2"),
+        v.literal("none"),
+      ),
+      destinationIds: v.array(v.string()),
+      status: v.union(
+        v.literal("draft"),
+        v.literal("scheduled"),
+        v.literal("processing"),
+        v.literal("published"),
+        v.literal("partially_published"),
+        v.literal("failed"),
+        v.literal("cancelled"),
+      ),
+      scheduledAt: v.optional(v.number()),
+      idempotencyKey: v.string(),
+      createdBy: v.string(),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+      lastError: v.optional(v.string()),
+    })
+      .index("by_status", ["status"])
+      .index("by_scheduledAt", ["scheduledAt"])
+      .index("by_createdAt", ["createdAt"])
+      .index("by_idempotencyKey", ["idempotencyKey"]),
+
+    // Delivery state is tracked separately for every destination.
+    telegramDeliveries: defineTable({
+      postId: v.id("telegramPosts"),
+      chatId: v.string(),
+      destinationTitle: v.string(),
+      status: v.union(
+        v.literal("pending"),
+        v.literal("processing"),
+        v.literal("sent"),
+        v.literal("failed"),
+      ),
+      telegramMessageId: v.optional(v.number()),
+      error: v.optional(v.string()),
+      attempts: v.number(),
+      sentAt: v.optional(v.number()),
+      createdAt: v.number(),
+    })
+      .index("by_postId", ["postId"])
+      .index("by_chatId", ["chatId"])
+      .index("by_status", ["status"]),
+
+    // Server-side media metadata. Files live in Convex storage, never the client.
+    telegramMedia: defineTable({
+      storageId: v.string(),
+      name: v.string(),
+      mimeType: v.string(),
+      size: v.number(),
+      kind: v.union(
+        v.literal("image"),
+        v.literal("video"),
+        v.literal("document"),
+        v.literal("audio"),
+        v.literal("animation"),
+      ),
+      caption: v.optional(v.string()),
+      folder: v.string(),
+      uploadedBy: v.string(),
+      createdAt: v.number(),
+    })
+      .index("by_createdAt", ["createdAt"])
+      .index("by_folder", ["folder"]),
+
+    // Editable command menu. Sync writes the same rows to Telegram.
+    telegramCommands: defineTable({
+      command: v.string(),
+      description: v.string(),
+      scope: v.string(),
+      visible: v.boolean(),
+      updatedAt: v.number(),
+    })
+      .index("by_command", ["command"])
+      .index("by_scope", ["scope"]),
 
     // Operator audit trail for every privileged action.
     auditLogs: defineTable({
