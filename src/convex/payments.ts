@@ -47,13 +47,68 @@ export function treasuryAddress(): string | null {
     process.env.TON_DEPOSIT_ADDRESS ??
     ""
   ).trim();
-  return value || null;
+  if (!value) return null;
+  // TON Connect wallets must receive a TEP-2 user-friendly address; a raw
+  // `workchain:hex` value has to be converted before it reaches the client.
+  return toFriendlyTonAddress(value) ?? value;
 }
 
 /** Mainnet friendly (EQ/UQ) or raw workchain address. */
 export function isValidTonAddress(address: string) {
   if (/^[EU]Q[A-Za-z0-9_-]{46}$/.test(address)) return true;
   return /^-?\d+:[0-9a-fA-F]{64}$/.test(address);
+}
+
+const TON_B64_ALPHABET =
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+function crc16Xmodem(bytes: number[]) {
+  let crc = 0;
+  for (const byte of bytes) {
+    crc ^= byte << 8;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc =
+        crc & 0x8000 ? ((crc << 1) ^ 0x1021) & 0xffff : (crc << 1) & 0xffff;
+    }
+  }
+  return crc & 0xffff;
+}
+
+function base64Url(bytes: number[]) {
+  let out = "";
+  for (let i = 0; i < bytes.length; i += 3) {
+    const chunk =
+      (bytes[i] << 16) | ((bytes[i + 1] ?? 0) << 8) | (bytes[i + 2] ?? 0);
+    out += TON_B64_ALPHABET[(chunk >> 18) & 63];
+    out += TON_B64_ALPHABET[(chunk >> 12) & 63];
+    if (i + 1 < bytes.length) out += TON_B64_ALPHABET[(chunk >> 6) & 63];
+    if (i + 2 < bytes.length) out += TON_B64_ALPHABET[chunk & 63];
+  }
+  return out;
+}
+
+/**
+ * Converts a raw `workchain:hash` address into the TEP-2 non-bounceable
+ * mainnet form (`UQ…`). TON Connect rejects raw addresses, so the treasury
+ * address is normalised once at the source. Friendly addresses pass through.
+ */
+export function toFriendlyTonAddress(address: string): string | null {
+  const trimmed = address.trim();
+  const raw = /^(-?\d+):([0-9a-fA-F]{64})$/.exec(trimmed);
+  if (!raw) return isValidTonAddress(trimmed) ? trimmed : null;
+  const workchain = Number(raw[1]);
+  if (!Number.isInteger(workchain) || workchain < -128 || workchain > 127) {
+    return null;
+  }
+  // TEP-2 tag: 0x51 = mainnet, non-bounceable. A non-bounceable destination
+  // still receives funds even if the treasury wallet is not deployed yet.
+  const bytes = [0x51, workchain & 0xff];
+  for (let i = 0; i < 64; i += 2) {
+    bytes.push(parseInt(raw[2].slice(i, i + 2), 16));
+  }
+  const checksum = crc16Xmodem(bytes);
+  bytes.push(checksum >> 8, checksum & 0xff);
+  return base64Url(bytes);
 }
 
 function tonApiBase() {
