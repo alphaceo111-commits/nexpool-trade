@@ -301,7 +301,9 @@ export default function Home() {
           `${formatNex(result.creditedNex)} NEX settled to your confirmed balance`,
         );
       } else if (result.status === "limit") {
-        toast.info("Daily mining limit already reached. Accrual resumes at 00:00 UTC.");
+        toast.info(
+          "Normal daily cap reached. Watch 20 verified ads in Mining to unlock another 5 hours.",
+        );
       } else {
         toast.info("No new NEX to settle yet. Keep mining.");
       }
@@ -405,29 +407,52 @@ export default function Home() {
           action={
             statusPill(active, mining.status)
           }
-        >
-          <MiningDial
-            todayNex={mining.todayMinedNex}
-            capNex={mining.todayLimitNex}
-            ratePerHour={speed.total}
-            serverNow={snapshot.serverNow}
-            enabled={active}
-            status={mining.status}
-          />
-          <div className="mt-2 grid grid-cols-2 divide-x divide-border/70 border-t border-border/70 pt-3">
-            <Metric
-              label="Speed"
-              value={`${formatNex(speed.total)} NEX/h`}
-              sub="server rate"
-              tone="gold"
+        >            <MiningDial
+              todayNex={mining.todayMinedNex}
+              capNex={mining.todayLimitNex}
+              ratePerHour={speed.total}
+              serverNow={snapshot.serverNow}
+              enabled={active && !mining.extensionActive}
+              status={mining.status}
             />
-            <Metric
-              label="Remaining today"
-              value={`${formatNex(mining.remainingTodayNex)} NEX`}
-              sub="before cap"
-              className="pl-3"
-            />
-          </div>
+            <div className="mt-2 grid grid-cols-2 divide-x divide-border/70 border-t border-border/70 pt-3">
+              <Metric
+                label="Speed"
+                value={`${formatNex(speed.total)} NEX/h`}
+                sub="server rate"
+                tone="gold"
+              />
+              <Metric
+                label="Remaining today"
+                value={`${formatNex(mining.remainingTodayNex)} NEX`}
+                sub="before cap"
+                className="pl-3"
+              />
+            </div>
+            {mining.extensionActive ? (
+              <div className="mt-2 flex items-center justify-between rounded-sm border border-gold/30 bg-gold/[0.04] px-2.5 py-2">
+                <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-gold">
+                  Extension live
+                </span>
+                <span className="num text-[10px] text-foreground">
+                  +{formatNex(mining.extensionMinedNex)} NEX ·{" "}
+                  {Math.max(
+                    0,
+                    Math.floor(
+                      ((mining.extensionEndsAt ?? snapshot.serverNow) -
+                        snapshot.serverNow) /
+                        60000,
+                    ),
+                  )}
+                  m left
+                </span>
+              </div>
+            ) : null}
+            {mining.awayMiningActive ? (
+              <p className="mt-2 font-mono text-[8.5px] uppercase tracking-[0.08em] text-up">
+                Away mining permission active
+              </p>
+            ) : null}
         </Panel>
       </div>
 

@@ -152,6 +152,12 @@ const schema = defineSchema(
       treasuryAvailableUsd: v.number(),
       miningEnabled: v.boolean(),
       miningEnabledAt: v.number(),
+      // Verified-ad entitlements. Durations are operator controlled; the ad
+      // counts themselves are fixed by the product rules.
+      awayMiningHours: v.optional(v.number()),
+      extensionHours: v.optional(v.number()),
+      // One-time patch marker for the verified-ad economy.
+      miningEconomyVersion: v.optional(v.number()),
       withdrawalsEnabled: v.boolean(),
       ownerUserId: v.optional(v.id("users")),
       // Set once the starter sponsor missions have been published.
@@ -192,6 +198,18 @@ const schema = defineSchema(
       miningSessionStartedAt: v.optional(v.number()),
       miningSessionHeartbeatAt: v.optional(v.number()),
       miningSessionCreditedAt: v.optional(v.number()),
+      // Start of the current away-mining window after the app was closed.
+      awayMiningStartedAt: v.optional(v.number()),
+      // Independently tracked verified-ad progress. The counters reset only
+      // when their own entitlement is granted.
+      awayMiningAdProgress: v.optional(v.number()),
+      awayMiningUnlockedAt: v.optional(v.number()),
+      awayMiningExpiresAt: v.optional(v.number()),
+      extensionAdProgress: v.optional(v.number()),
+      extensionUnlockedAt: v.optional(v.number()),
+      miningExtensionStartedAt: v.optional(v.number()),
+      miningExtensionEndsAt: v.optional(v.number()),
+      extensionUnlockDay: v.optional(v.string()),
       createdAt: v.number(),
     })
       .index("by_user", ["userId"])
@@ -211,11 +229,15 @@ const schema = defineSchema(
       updatedAt: v.number(),
     }).index("by_user", ["userId"]),
 
-    // Settled mining per UTC day, used to enforce the server daily cap.
+    // Settled mining per UTC day. `minedNex` is the combined total; the two
+    // buckets are tracked separately so the normal cap can never consume the
+    // five-hour extension earnings.
     miningDays: defineTable({
       userId: v.id("users"),
       day: v.string(),
       minedNex: v.number(),
+      normalMinedNex: v.optional(v.number()),
+      extensionMinedNex: v.optional(v.number()),
       updatedAt: v.number(),
     }).index("by_user_day", ["userId", "day"]),
 
@@ -224,6 +246,8 @@ const schema = defineSchema(
       userId: v.id("users"),
       day: v.string(),
       amountNex: v.number(),
+      normalNex: v.optional(v.number()),
+      extensionNex: v.optional(v.number()),
       rateNexPerHour: v.number(),
       fromTs: v.number(),
       toTs: v.number(),
@@ -231,6 +255,27 @@ const schema = defineSchema(
     })
       .index("by_user_createdAt", ["userId", "createdAt"])
       .index("by_user_day", ["userId", "day"]),
+
+    // One server-issued ad challenge per requested verified view. A provider
+    // reward callback completes the oldest pending challenge for the account;
+    // a click or the mere opening of an ad can never complete one.
+    miningAdChallenges: defineTable({
+      userId: v.id("users"),
+      purpose: v.union(v.literal("away"), v.literal("extension")),
+      provider: v.string(),
+      status: v.union(
+        v.literal("pending"),
+        v.literal("completed"),
+        v.literal("expired"),
+      ),
+      createdAt: v.number(),
+      expiresAt: v.number(),
+      completedAt: v.optional(v.number()),
+      providerEvent: v.optional(v.string()),
+      providerReference: v.optional(v.string()),
+    })
+      .index("by_user_status_createdAt", ["userId", "status", "createdAt"])
+      .index("by_createdAt", ["createdAt"]),
 
     // Single source of truth for every NEX movement.
     ledger: defineTable({

@@ -11,15 +11,15 @@ import type { Doc, Id } from "./_generated/dataModel";
  */
 export const LEVEL_DEFAULTS = [
   { level: 1, name: "Beginner", xpRequired: 100, rewardNex: 0.000001, speedBonusNexPerHour: 0 },
-  { level: 2, name: "Starter", xpRequired: 300, rewardNex: 0.000002, speedBonusNexPerHour: 0.0000001 },
-  { level: 3, name: "Explorer", xpRequired: 700, rewardNex: 0.000004, speedBonusNexPerHour: 0.0000002 },
-  { level: 4, name: "Miner", xpRequired: 1_500, rewardNex: 0.000008, speedBonusNexPerHour: 0.0000003 },
-  { level: 5, name: "Advanced", xpRequired: 3_000, rewardNex: 0.000015, speedBonusNexPerHour: 0.0000004 },
-  { level: 6, name: "Expert", xpRequired: 6_000, rewardNex: 0.00003, speedBonusNexPerHour: 0.0000005 },
-  { level: 7, name: "Master", xpRequired: 12_000, rewardNex: 0.00006, speedBonusNexPerHour: 0.0000006 },
-  { level: 8, name: "Elite", xpRequired: 25_000, rewardNex: 0.00012, speedBonusNexPerHour: 0.0000007 },
-  { level: 9, name: "Champion", xpRequired: 50_000, rewardNex: 0.00025, speedBonusNexPerHour: 0.0000008 },
-  { level: 10, name: "Legend", xpRequired: 100_000, rewardNex: 0.0005, speedBonusNexPerHour: 0.0000009 },
+  { level: 2, name: "Starter", xpRequired: 300, rewardNex: 0.000002, speedBonusNexPerHour: 0.000000005 },
+  { level: 3, name: "Explorer", xpRequired: 700, rewardNex: 0.000004, speedBonusNexPerHour: 0.00000001 },
+  { level: 4, name: "Miner", xpRequired: 1_500, rewardNex: 0.000008, speedBonusNexPerHour: 0.000000015 },
+  { level: 5, name: "Advanced", xpRequired: 3_000, rewardNex: 0.000015, speedBonusNexPerHour: 0.00000002 },
+  { level: 6, name: "Expert", xpRequired: 6_000, rewardNex: 0.00003, speedBonusNexPerHour: 0.000000025 },
+  { level: 7, name: "Master", xpRequired: 12_000, rewardNex: 0.00006, speedBonusNexPerHour: 0.00000003 },
+  { level: 8, name: "Elite", xpRequired: 25_000, rewardNex: 0.00012, speedBonusNexPerHour: 0.000000035 },
+  { level: 9, name: "Champion", xpRequired: 50_000, rewardNex: 0.00025, speedBonusNexPerHour: 0.00000004 },
+  { level: 10, name: "Legend", xpRequired: 100_000, rewardNex: 0.0005, speedBonusNexPerHour: 0.000000045 },
 ] as const;
 
 export type LevelRow = {

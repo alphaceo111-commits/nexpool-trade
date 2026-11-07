@@ -71,6 +71,8 @@ function configPayload(config: AdminConfig, overrides: Partial<AdminConfig> = {}
     referralBonusCap: config.referralBonusCap,
     treasuryAvailableUsd: config.treasuryAvailableUsd,
     miningEnabled: config.miningEnabled,
+    awayMiningHours: config.awayMiningHours,
+    extensionHours: config.extensionHours,
     withdrawalsEnabled: config.withdrawalsEnabled,
     ...overrides,
   };
@@ -291,9 +293,16 @@ function Overview({ onTab }: { onTab: (tab: TabKey) => void }) {
             good: service.telegramBotConfigured,
           },
           {
-            label: "Ad verifier",
+            label: "Task ad verifier",
             value: service.adProviderConfigured ? "Connected" : "Not configured",
             good: service.adProviderConfigured,
+          },
+          {
+            label: "Rewarded ad verifier",
+            value: service.rewardedAdProviderConfigured
+              ? "Adsgram ready"
+              : "Set ADSGRAM_REWARD_SECRET",
+            good: service.rewardedAdProviderConfigured,
           },
         ].map((item) => (
           <div
@@ -715,11 +724,27 @@ function EconomyForm({ config }: { config: AdminConfig }) {
                 step="any"
               />
             </Field>
-            <Field label="Daily cap (NEX)" hint="Enforced per UTC day by the backend.">
+            <Field label="Daily cap (NEX)" hint="Normal mining only; the extension has a separate bucket.">
               <NumberInput
                 value={form.dailyLimitNex}
                 onChange={(value) => set("dailyLimitNex", value)}
                 step="any"
+              />
+            </Field>
+            <Field label="Away permission (hours)" hint="Granted after 10 verified ads.">
+              <NumberInput
+                value={form.awayMiningHours}
+                onChange={(value) => set("awayMiningHours", value)}
+                step="1"
+                min="1"
+              />
+            </Field>
+            <Field label="Extension length (hours)" hint="Granted after 20 verified ads at the cap.">
+              <NumberInput
+                value={form.extensionHours}
+                onChange={(value) => set("extensionHours", value)}
+                step="1"
+                min="1"
               />
             </Field>
             <Field label="NEX target (USD)" hint="Published reference, not a liquidity promise.">

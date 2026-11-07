@@ -8,6 +8,15 @@ const http = httpRouter();
 
 auth.addHttpRoutes(http);
 
+function sameSecret(left: string, right: string) {
+  if (left.length !== right.length) return false;
+  let diff = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    diff |= left.charCodeAt(index) ^ right.charCodeAt(index);
+  }
+  return diff === 0;
+}
+
 /** Joins the configured app origin with a mini-app route without breaking a
  * deployment that is served under a subpath. */
 function withAppPath(base: string, path: string | undefined) {
@@ -146,6 +155,54 @@ http.route({
     }
 
     return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }),
+});
+
+/**
+ * Adsgram server-side reward callback. Adsgram only calls this after a rewarded
+ * view is completed, so an ad click or an unfinished opening is never a
+ * completion. The secret and pending challenge make callbacks idempotent and
+ * impossible to replay into a second reward.
+ */
+http.route({
+  path: "/adsgram/reward",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    const expected = process.env.ADSGRAM_REWARD_SECRET;
+    if (!expected) {
+      return new Response("reward endpoint not configured", { status: 503 });
+    }
+    const url = new URL(request.url);
+    const secret = url.searchParams.get("secret") ?? "";
+    if (!secret || !sameSecret(secret, expected)) {
+      return new Response("unauthorized", { status: 403 });
+    }
+    const telegramId =
+      url.searchParams.get("userid") ??
+      url.searchParams.get("telegram_id") ??
+      "";
+    if (!/^\d+$/.test(telegramId)) {
+      return new Response(JSON.stringify({ ok: true, recorded: false }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    const result = await ctx.runMutation(
+      internal.miningAds.completeFromProvider,
+      {
+        telegramId,
+        provider: "adsgram",
+        providerEvent: url.searchParams.get("event") ?? "reward",
+        providerReference:
+          url.searchParams.get("adid") ??
+          url.searchParams.get("reference") ??
+          undefined,
+      },
+    );
+    return new Response(JSON.stringify({ ok: true, ...result }), {
       status: 200,
       headers: { "content-type": "application/json" },
     });

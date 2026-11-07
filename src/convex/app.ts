@@ -1,6 +1,10 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
 import {
+  CONFIG_DEFAULTS,
+  CONFIG_KEY,
+  MINING_ECONOMY_VERSION,
   computeSpeed,
   ensureAccount,
   heartbeatMiningSession,
@@ -15,8 +19,45 @@ import {
   stopMiningSession,
 } from "./engine";
 import { getViewer } from "./engine";
-import { claimedLevel, seedLevels } from "./levels";
+import { LEVEL_DEFAULTS, claimedLevel, seedLevels } from "./levels";
 import { seedBotStartMissions, seedStarterMissions } from "./missions";
+
+/**
+ * One-time stored-config patch. Existing deployments may still carry the old
+ * mining rate even after this code ships; this makes the new economy apply on
+ * the next account bootstrap without an operator CLI step. The version guard
+ * keeps later admin edits intact.
+ */
+async function applyMiningEconomyV2(ctx: MutationCtx) {
+  const row = await ctx.db
+    .query("appConfig")
+    .withIndex("by_key", (q) => q.eq("key", CONFIG_KEY))
+    .first();
+  if (!row) return;
+  if ((row.miningEconomyVersion ?? 0) >= MINING_ECONOMY_VERSION) return;
+
+  const now = Date.now();
+  await ctx.db.patch(row._id, {
+    baseRateNexPerHour: CONFIG_DEFAULTS.baseRateNexPerHour,
+    dailyLimitNex: CONFIG_DEFAULTS.dailyLimitNex,
+    awayMiningHours: CONFIG_DEFAULTS.awayMiningHours,
+    extensionHours: CONFIG_DEFAULTS.extensionHours,
+    miningEconomyVersion: MINING_ECONOMY_VERSION,
+    updatedAt: now,
+    updatedBy: "verified-ad-mining-economy",
+  });
+
+  const levels = await ctx.db.query("levels").collect();
+  for (const level of levels) {
+    const seed = LEVEL_DEFAULTS.find((item) => item.level === level.level);
+    if (!seed) continue;
+    if (level.speedBonusNexPerHour === seed.speedBonusNexPerHour) continue;
+    await ctx.db.patch(level._id, {
+      speedBonusNexPerHour: seed.speedBonusNexPerHour,
+      updatedAt: now,
+    });
+  }
+}
 
 /** Idempotent account bootstrap: profile, balance, config and referral capture. */
 export const ensure = mutation({
@@ -29,6 +70,7 @@ export const ensure = mutation({
     await seedStarterMissions(ctx);
     await seedBotStartMissions(ctx);
     await seedLevels(ctx);
+    await applyMiningEconomyV2(ctx);
     return { profileId: profile._id, nexId: profile.nexId };
   },
 });
@@ -254,6 +296,8 @@ export const snapshot = query({
         referralBonusCap: config.referralBonusCap,
         treasuryAvailableUsd: config.treasuryAvailableUsd,
         miningEnabled: config.miningEnabled,
+        awayMiningHours: config.awayMiningHours,
+        extensionHours: config.extensionHours,
         withdrawalsEnabled: config.withdrawalsEnabled,
       },
       mining,
@@ -264,6 +308,9 @@ export const snapshot = query({
         levelBonus: speed.levelBonus,
         claimedLevel: speed.claimedLevel,
         total: speed.total,
+        uncappedTotal: speed.uncappedTotal,
+        rateCapNexPerHour: speed.rateCapNexPerHour,
+        capped: speed.capped,
         taskLines: speed.taskLines,
         pendingLines: pendingSpeedLines,
         referralBonusCap: config.referralBonusCap,
@@ -316,6 +363,8 @@ export const snapshot = query({
         id: row._id,
         day: row.day,
         amountNex: row.amountNex,
+        normalNex: row.normalNex ?? row.amountNex,
+        extensionNex: row.extensionNex ?? 0,
         rateNexPerHour: row.rateNexPerHour,
         fromTs: row.fromTs,
         toTs: row.toTs,

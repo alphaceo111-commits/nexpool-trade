@@ -1,6 +1,10 @@
 import { internalMutation } from "./_generated/server";
-import { CONFIG_DEFAULTS, CONFIG_KEY } from "./engine";
-import { DEFAULT_TASK_XP, seedLevels } from "./levels";
+import {
+  CONFIG_DEFAULTS,
+  CONFIG_KEY,
+  MINING_ECONOMY_VERSION,
+} from "./engine";
+import { DEFAULT_TASK_XP, LEVEL_DEFAULTS, seedLevels } from "./levels";
 import { seedBotStartMissions, seedStarterMissions } from "./missions";
 
 /**
@@ -102,6 +106,57 @@ export const applyDailyLimit = internalMutation({
       patched: true,
       previous: row.dailyLimitNex,
       dailyLimitNex: CONFIG_DEFAULTS.dailyLimitNex,
+    };
+  },
+});
+
+/**
+ * Applies the verified-ad mining economy: 0.000000500 NEX/h, the 0.000006000
+ * normal cap, independent away/extension windows and small level speed steps.
+ * Existing normal-vs-extension day rows are read with a backwards-compatible
+ * fallback, so no ledger rewrite is required.
+ */
+export const applyVerifiedMiningEconomy = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const row = await ctx.db
+      .query("appConfig")
+      .withIndex("by_key", (q) => q.eq("key", CONFIG_KEY))
+      .first();
+
+    if (row) {
+      await ctx.db.patch(row._id, {
+        baseRateNexPerHour: CONFIG_DEFAULTS.baseRateNexPerHour,
+        dailyLimitNex: CONFIG_DEFAULTS.dailyLimitNex,
+        awayMiningHours: CONFIG_DEFAULTS.awayMiningHours,
+        extensionHours: CONFIG_DEFAULTS.extensionHours,
+        miningEconomyVersion: MINING_ECONOMY_VERSION,
+        updatedAt: now,
+        updatedBy: "verified-ad-mining-economy",
+      });
+    }
+
+    const levels = await ctx.db.query("levels").collect();
+    let levelsPatched = 0;
+    for (const level of levels) {
+      const seed = LEVEL_DEFAULTS.find((item) => item.level === level.level);
+      if (!seed) continue;
+      if (level.speedBonusNexPerHour === seed.speedBonusNexPerHour) continue;
+      await ctx.db.patch(level._id, {
+        speedBonusNexPerHour: seed.speedBonusNexPerHour,
+        updatedAt: now,
+      });
+      levelsPatched += 1;
+    }
+
+    return {
+      configPatched: Boolean(row),
+      levelsPatched,
+      baseRateNexPerHour: CONFIG_DEFAULTS.baseRateNexPerHour,
+      dailyLimitNex: CONFIG_DEFAULTS.dailyLimitNex,
+      awayMiningHours: CONFIG_DEFAULTS.awayMiningHours,
+      extensionHours: CONFIG_DEFAULTS.extensionHours,
     };
   },
 });

@@ -161,6 +161,9 @@ export const overview = query({
         adProviderConfigured: Boolean(
           process.env.AD_PROVIDER_VERIFY_URL && process.env.AD_PROVIDER_API_KEY,
         ),
+        rewardedAdProviderConfigured: Boolean(
+          process.env.ADSGRAM_REWARD_SECRET,
+        ),
       },
       counts: {
         users: profiles.length,
@@ -343,6 +346,8 @@ export const updateConfig = mutation({
     referralBonusCap: v.number(),
     treasuryAvailableUsd: v.number(),
     miningEnabled: v.boolean(),
+    awayMiningHours: v.optional(v.number()),
+    extensionHours: v.optional(v.number()),
     withdrawalsEnabled: v.boolean(),
   },
   handler: async (ctx, args) => {
@@ -385,12 +390,22 @@ export const updateConfig = mutation({
     if (args.treasuryAvailableUsd < 0) {
       throw new Error("Treasury balance cannot be negative.");
     }
+    const awayMiningHours = args.awayMiningHours ?? config.awayMiningHours;
+    const extensionHours = args.extensionHours ?? config.extensionHours;
+    if (!(awayMiningHours >= 1) || awayMiningHours > 168) {
+      throw new Error("Away-mining permission must be between 1 and 168 hours.");
+    }
+    if (!(extensionHours >= 1) || extensionHours > 24) {
+      throw new Error("The daily-cap extension must be between 1 and 24 hours.");
+    }
 
     const now = Date.now();
     const miningEnabledAt =
       args.miningEnabled && !config.miningEnabled ? now : config.miningEnabledAt;
     const patch = {
       ...args,
+      awayMiningHours,
+      extensionHours,
       miningEnabledAt,
       updatedAt: now,
       updatedBy: actor.label,
@@ -442,7 +457,7 @@ export const updateConfig = mutation({
       ctx,
       actor,
       "config.update",
-      `rate ${args.baseRateNexPerHour} NEX/h · cap ${args.dailyLimitNex} · $${args.nexUsdRate}/NEX · treasury $${args.treasuryAvailableUsd} · mining ${args.miningEnabled} · withdrawals ${args.withdrawalsEnabled}`,
+      `rate ${args.baseRateNexPerHour} NEX/h · cap ${args.dailyLimitNex} · extension ${extensionHours}h · away ${awayMiningHours}h · $${args.nexUsdRate}/NEX · treasury $${args.treasuryAvailableUsd} · mining ${args.miningEnabled} · withdrawals ${args.withdrawalsEnabled}`,
     );
     return { updated: true };
   },

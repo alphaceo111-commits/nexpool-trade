@@ -7,6 +7,7 @@ import {
   audit,
   computeSpeed,
   dayKey,
+  EXTENSION_ADS_REQUIRED,
   loadConfig,
   notifyUser,
   roundNex,
@@ -307,6 +308,10 @@ type UserAccount = {
     total: number;
   };
   todayNex: number;
+  extensionNex: number;
+  extensionActive: boolean;
+  awayMiningActive: boolean;
+  extensionHours: number;
   dailyCapNex: number;
   tasks: { available: number; pending: number; completed: number };
   referrals: { total: number; qualified: number; target: number; taskTarget: number };
@@ -486,7 +491,11 @@ async function userSnapshot(
       levelBonus: speed.levelBonus,
       total: speed.total,
     },
-    todayNex: roundNex(miningDay?.minedNex ?? 0),
+    todayNex: roundNex(miningDay?.normalMinedNex ?? miningDay?.minedNex ?? 0),
+    extensionNex: roundNex(miningDay?.extensionMinedNex ?? 0),
+    extensionActive: (profile.miningExtensionEndsAt ?? 0) > now,
+    awayMiningActive: (profile.awayMiningExpiresAt ?? 0) > now,
+    extensionHours: config.extensionHours,
     dailyCapNex: config.dailyLimitNex,
     tasks: {
       available: tasks.filter((task) => {
@@ -642,9 +651,11 @@ function buildUserReply(
         ? "🔴 ACCOUNT RESTRICTED"
         : !account.miningEnabled
           ? "🔴 PAUSED BY OPERATOR"
-          : capReached
-            ? "🟡 DAILY CAP REACHED"
-            : "🟢 ACTIVE";
+          : account.extensionActive
+            ? "🟢 5-HOUR EXTENSION LIVE"
+            : capReached
+              ? "🟡 DAILY CAP REACHED"
+              : "🟢 ACTIVE";
       body = [
         "⛏️ NEXPOOL MINING",
         "",
@@ -656,15 +667,18 @@ function buildUserReply(
         `(base ${formatNex(account.speed.base)} · tasks +${formatNex(account.speed.taskBonus)} · referrals +${formatNex(account.speed.referralBonus)} · levels +${formatNex(account.speed.levelBonus)})`,
         "",
         "Earned today:",
-        `${formatNex(account.todayNex)} / ${formatNex(account.dailyCapNex)} NEX`,
+        `${formatNex(account.todayNex)} / ${formatNex(account.dailyCapNex)} NEX normal · ${formatNex(account.extensionNex)} NEX extension`,
+        account.awayMiningActive ? "Away mining: permission active" : "Away mining: locked (10 verified ads)",
         "",
         account.restricted
           ? "This account is restricted. No NEX accrues until support clears it."
           : !account.miningEnabled
             ? "The operator paused mining. Balances are safe; no NEX accrues while paused."
-            : capReached
-              ? "Daily cap reached — accrual resumes at 00:00 UTC."
-              : "Accrual runs only while the NEXPOOL Mini App is open and heartbeating. Leaving stops the session within 60 seconds. Open /app and tap Start mining.",
+            : account.extensionActive
+              ? "The 5-hour extension is live. Extension earnings are recorded separately and do not raise the normal cap."
+              : capReached
+                ? `Daily cap reached. Watch ${EXTENSION_ADS_REQUIRED} verified ads in Mining to unlock another ${account.extensionHours} hours, or wait for 00:00 UTC.`
+                : "Accrual runs only while the NEXPOOL Mini App is open and heartbeating. Leaving stops the session within 60 seconds unless away mining was unlocked with 10 verified ads. Open /app and tap Start mining.",
       ].join("\n");
       break;
     }
@@ -1183,6 +1197,9 @@ async function buildAdminMiningSettings(
       `Mining: ${config.miningEnabled ? "enabled" : "paused"}`,
       `Base rate: ${formatNex(config.baseRateNexPerHour)} NEX/h`,
       `Daily cap: ${formatNex(config.dailyLimitNex)} NEX / UTC day`,
+      `Away mining: ${config.awayMiningHours}h after 10 verified ads`,
+      `Cap extension: ${config.extensionHours}h after 20 verified ads`,
+      `Rewarded ad verifier: ${process.env.ADSGRAM_REWARD_SECRET ? "configured" : "missing ADSGRAM_REWARD_SECRET"}`,
       `Referral bonus: ${formatNex(config.referralBonusNexPerHour)} NEX/h · cap ${config.referralBonusCap}`,
       `Referral requirement: ${config.referralTaskTarget} tasks · ${config.qualifiedReferralTarget} qualified`,
       "",

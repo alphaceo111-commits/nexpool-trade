@@ -26,7 +26,11 @@ import { cn } from "@/lib/utils";
 const FAQ = [
   {
     q: "How does mining actually accrue?",
-    a: "Mining accrues only while the Mini App is open and sending presence heartbeats. The backend credits the elapsed session against your effective rate, enforces the UTC daily cap, and writes the confirmed ledger total. Leaving stops accrual within 60 seconds; the ledger is authoritative.",
+    a: "Mining accrues only while the Mini App is open and sending presence heartbeats. The backend credits the elapsed session against your effective rate, enforces the 0.000006000 NEX normal daily cap, and writes the confirmed ledger total. Leaving stops accrual within 90 seconds unless you have unlocked away mining with 10 verified ads. The ledger is authoritative.",
+  },
+  {
+    q: "How do the verified ad unlocks work?",
+    a: "Away mining is one entitlement: 10 completed Adsgram reward views unlock the configured permission window. The 5-hour extension is a separate entitlement: after the normal cap is reached, 20 completed Adsgram reward views unlock a separate extension bucket. Ad opens and clicks never count; only the provider's completed-view callback can consume a server-issued challenge.",
   },
   {
     q: "Why hasn't my referral counted?",
@@ -56,8 +60,9 @@ const FAQ = [
 
 const RULES = [
   "Rewards are credited only after backend verification; nothing is simulated.",
-  "Mining uses server time and stops at the configured daily cap.",
-  "Referral bonuses apply only to qualified referrals and are capped.",
+  "Mining uses server time and stops at the 0.000006000 NEX normal daily cap.",
+  "Away mining requires 10 verified ads; the extra 5 hours requires 20 separate verified ads.",
+  "Referral and task bonuses can never push the total rate above 2× the base rate.",
   "Withdrawals reserve funds atomically and are paid only after the operator reconciles treasury and compliance.",
   "Self-referrals, duplicate accounts and forged verification callbacks are rejected and audited.",
   "The operator can pause mining, tasks or payouts; paused services accrue nothing.",
