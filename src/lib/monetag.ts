@@ -87,9 +87,23 @@ async function run(
 }
 
 /**
- * Opens the generic Monetag rewarded interstitial. Call it directly from the
- * tap handler so the ad network keeps the user gesture.
+ * Opens a Monetag rewarded ad on zone 12157822.
+ *
+ * - `type: "end"` is the classic Rewarded Interstitial: the SDK resolves
+ *   after the ad is shown and closed. Mining accepts the result only when
+ *   `reward_event_type === "valued"` and the SDK never classifies it as a
+ *   click.
+ * - `type: "pop"` is the Rewarded Popup: the SDK resolves after the user
+ *   watches till the end or closes an interstitial-format ad. The same
+ *   valued/click checks apply before any progress is issued.
+ * - `type: "inApp"` is an In-App Interstitial with the frequency/capping/
+ *   interval/timeout settings from the Monetag docs. The last digit of
+ *   `inAppSettings` controls cross-page session retention.
+ *
+ * Any format that returns a confirmed reward event is wired to the same
+ * backend confirmation path; the SDK result never credits NEX directly.
  */
+export function showRewardedAd(): Promise<RewardedAdResult>
 export function showRewardedAd(): Promise<RewardedAdResult> {
   if (typeof window === "undefined") {
     return Promise.resolve({
@@ -119,6 +133,14 @@ export async function showVerifiedRewardedAd(options: {
   ymid: string;
   requestVar: string;
 }): Promise<VerifiedRewardedAdResult> {
+  const effectiveType = options.type ?? "end";
+
+  try {
+    const result = await runtime({
+      type: effectiveType,
+      ymid: options.ymid,
+      requestVar: options.requestVar,
+    });
   if (typeof window === "undefined") {
     return {
       ok: false,
@@ -140,7 +162,7 @@ export async function showVerifiedRewardedAd(options: {
 
   try {
     const result = await runtime({
-      type: "end",
+      type: effectiveType,
       ymid: options.ymid,
       requestVar: options.requestVar,
     });
@@ -166,7 +188,7 @@ export async function showVerifiedRewardedAd(options: {
       };
     }
     return { ok: true, result };
-  } catch (error) {
+  } finally {
     return { ok: false, reason: errorMessage(error) };
   }
 }
