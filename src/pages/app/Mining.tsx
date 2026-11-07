@@ -36,10 +36,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
-import {
-  adsgramConfigured,
-  showVerifiedRewardedAd,
-} from "@/lib/adsgram";
+import { showVerifiedRewardedAd } from "@/lib/monetag";
 
 function countdown(ms: number) {
   const total = Math.max(0, Math.floor(ms / 1000));
@@ -54,6 +51,7 @@ export default function Mining() {
   const settle = useMutation(api.app.settleMiningNow);
   const startMining = useMutation(api.app.startMining);
   const requestMiningAd = useMutation(api.miningAds.requestAd);
+  const confirmMiningAd = useMutation(api.miningAds.confirmFromClient);
   const tick = useTick(1000);
   const [settling, setSettling] = useState(false);
   const [adBusy, setAdBusy] = useState<"away" | "extension" | null>(null);
@@ -95,31 +93,53 @@ export default function Mining() {
   );
 
   const watchAds = async (purpose: "away" | "extension") => {
-    if (!adsgramConfigured || !mining.ads.providerReady) {
-      toast.error(
-        "Rewarded ads are not fully configured. The operator must set the Adsgram block ID and backend reward secret.",
-      );
-      return;
-    }
     if (adBusy) return;
     setAdBusy(purpose);
     setAdNotice(null);
     try {
-      // A provider callback may only complete a challenge the server issued
-      // first. The ad is opened immediately after the challenge is stored.
+      // The server issues the challenge and unique Monetag ymid first. The SDK
+      // result is sent back for the backend to validate and consume exactly once.
       const challenge = await requestMiningAd({ purpose });
-      const ad = await showVerifiedRewardedAd();
+      const ad = await showVerifiedRewardedAd({
+        ymid: challenge.ymid,
+        requestVar: `mining_${purpose}`,
+      });
       if (!ad.ok) {
         toast.error(ad.reason);
         return;
       }
+
+      const confirmation = await confirmMiningAd({
+        challengeId: challenge.challengeId,
+        ymid: challenge.ymid,
+        rewardEventType: ad.result.reward_event_type ?? "valued",
+        eventType: ad.result.event_type,
+        estimatedPriceUsd: ad.result.estimated_price,
+      });
+      if (confirmation.status === "rejected") {
+        toast.error(confirmation.message);
+        setAdNotice(confirmation.message);
+        return;
+      }
+      if (confirmation.status === "already") {
+        toast.info("This Monetag view was already counted.");
+        return;
+      }
+      if (confirmation.status === "granted") {
+        toast.success(
+          purpose === "away"
+            ? "Away mining unlocked."
+            : `${config.extensionHours}-hour extension unlocked.`,
+        );
+      } else {
+        toast.success("Verified Monetag view counted.");
+      }
       setAdNotice(
-        `Ad completed. Adsgram is confirming the view; the ${purpose === "away" ? "away-mining" : "extension"} counter updates automatically when the provider callback arrives.`,
+        `Monetag confirmed a completed rewarded view. The ${purpose === "away" ? "away-mining" : "extension"} progress updates automatically on this screen.`,
       );
-      toast.success("Verified ad finished. Waiting for the provider receipt.");
-      // Keep the type visible in development logs without trusting the client
-      // for any reward decision.
-      if (import.meta.env.DEV) console.debug("ad challenge", challenge.challengeId);
+      // The challenge ID is useful in development logs, but no client-side
+      // value is ever trusted for the reward decision.
+      if (import.meta.env.DEV) console.debug("monetag challenge", challenge.challengeId);
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -371,7 +391,7 @@ export default function Mining() {
         <SectionHeading
           index="03"
           title="Verified ad unlocks"
-          body="Two independent entitlements. Both require completed Adsgram reward views, confirmed by the provider callback."
+          body="Two independent entitlements. Both require completed Monetag reward views, confirmed by the Monetag SDK callback."
         />
         {adNotice ? (
           <div className="flex items-start gap-2.5 rounded-md border border-primary/40 bg-primary/[0.05] px-3.5 py-2.5">
@@ -397,12 +417,7 @@ export default function Mining() {
                 : "One verified view counts once. Opening or clicking an ad never counts."
             }
             busy={adBusy === "away"}
-            disabled={
-              mining.ads.away.active ||
-              !adsgramConfigured ||
-              !mining.ads.providerReady
-            }
-            providerReady={adsgramConfigured && mining.ads.providerReady}
+            disabled={mining.ads.away.active}
             onWatch={() => void watchAds("away")}
           />
           <AdUnlockCard
@@ -425,12 +440,8 @@ export default function Mining() {
             }
             busy={adBusy === "extension"}
             disabled={
-              mining.ads.extension.active ||
-              !mining.ads.extension.eligible ||
-              !adsgramConfigured ||
-              !mining.ads.providerReady
+              mining.ads.extension.active || !mining.ads.extension.eligible
             }
-            providerReady={adsgramConfigured && mining.ads.providerReady}
             onWatch={() => void watchAds("extension")}
           />
         </div>
@@ -677,7 +688,6 @@ function AdUnlockCard({
   note,
   busy,
   disabled,
-  providerReady,
   onWatch,
 }: {
   icon: typeof Gauge;
@@ -691,7 +701,6 @@ function AdUnlockCard({
   note: string;
   busy: boolean;
   disabled: boolean;
-  providerReady: boolean;
   onWatch: () => void;
 }) {
   return (
@@ -721,13 +730,6 @@ function AdUnlockCard({
         />
       </div>
       <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground">{note}</p>
-      {!providerReady ? (
-        <p className="mt-2 rounded-sm border border-warn/40 bg-warn/[0.04] px-2.5 py-1.5 text-[9.5px] leading-relaxed text-warn">
-          Rewarded ads are not fully configured. Set VITE_ADSGRAM_BLOCK_ID on
-          the frontend and ADSGRAM_REWARD_SECRET on the backend before enabling
-          this unlock.
-        </p>
-      ) : null}
       <Button
         size="sm"
         onClick={onWatch}
@@ -739,7 +741,7 @@ function AdUnlockCard({
           ? "Waiting for verified ad"
           : active
             ? "Permission active"
-            : `Watch verified ad · ${Math.min(completed + 1, required)}/${required}`}
+            : `Watch Monetag ad · ${Math.min(completed + 1, required)}/${required}`}
       </Button>
     </Panel>
   );

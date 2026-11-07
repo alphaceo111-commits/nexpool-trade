@@ -273,6 +273,14 @@ const schema = defineSchema(
       completedAt: v.optional(v.number()),
       providerEvent: v.optional(v.string()),
       providerReference: v.optional(v.string()),
+      // Monetag's SDK result is the completion signal. The postback is an
+      // optional second source for monetization/audit evidence.
+      clientCompletedAt: v.optional(v.number()),
+      clientRewardEventType: v.optional(v.string()),
+      clientEstimatedPriceUsd: v.optional(v.number()),
+      postbackValuedAt: v.optional(v.number()),
+      postbackRewardEventType: v.optional(v.string()),
+      postbackEstimatedPriceUsd: v.optional(v.number()),
     })
       .index("by_user_status_createdAt", ["userId", "status", "createdAt"])
       .index("by_createdAt", ["createdAt"]),

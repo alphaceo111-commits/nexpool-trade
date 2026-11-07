@@ -993,7 +993,9 @@ export async function readMiningSnapshot(
     extensionEndsAt: extension?.endsAt ?? null,
     extensionRemainingMs: extension ? extension.endsAt - now : 0,
     ads: {
-      providerReady: Boolean(process.env.ADSGRAM_REWARD_SECRET),
+      // Monetag runs through the shell SDK, so the server does not need a
+      // block credential. The optional postback secret is separate.
+      providerReady: true,
       away: {
         required: AWAY_ADS_REQUIRED,
         completed: awayProgress,

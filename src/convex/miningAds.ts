@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internalMutation, mutation } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import {
   AWAY_ADS_REQUIRED,
   EXTENSION_ADS_REQUIRED,
@@ -12,11 +12,27 @@ import {
 } from "./engine";
 
 /**
- * A challenge is only a request to show an ad. It is never a reward: the
- * Adsgram Reward URL is the only caller allowed to complete it, and that URL is
- * sent by the provider after a rewarded view finishes.
+ * A challenge is only permission to show one ad. It never pays by itself.
+ *
+ * Monetag's rewarded-interstitial promise resolves after the ad is closed and
+ * Monetag has confirmed the event; `reward_event_type === "valued"` is the
+ * payout signal. The optional postback is recorded for audit, but it fires at
+ * impression time and therefore can never be the sole completion proof.
  */
 const AD_CHALLENGE_TTL_MS = 15 * 60_000;
+const PROVIDER = "monetag" as const;
+
+type AdPurpose = "away" | "extension";
+
+type AdCompletionResult =
+  | { recorded: false; granted: false; progress: 0 }
+  | {
+      recorded: true;
+      granted: boolean;
+      purpose: AdPurpose;
+      progress: number;
+      endsAt?: number;
+    };
 
 async function pendingChallenge(ctx: MutationCtx, userId: Id<"users">) {
   return await ctx.db
@@ -28,10 +44,149 @@ async function pendingChallenge(ctx: MutationCtx, userId: Id<"users">) {
     .first();
 }
 
+function requiredAds(purpose: AdPurpose) {
+  return purpose === "away" ? AWAY_ADS_REQUIRED : EXTENSION_ADS_REQUIRED;
+}
+
+function adProgress(profile: Doc<"profiles">, purpose: AdPurpose) {
+  return purpose === "away"
+    ? profile.awayMiningAdProgress ?? 0
+    : profile.extensionAdProgress ?? 0;
+}
+
+function cleanPrice(value: number | undefined) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? value
+    : undefined;
+}
+
 /**
- * Issues a short-lived, purpose-specific ad challenge. The client never
- * receives a reward for opening it; it only receives permission to show the
- * provider's rewarded format.
+ * Consumes a challenge exactly once and applies the independent away or
+ * extension entitlement. All eligibility is re-read at the moment of reward.
+ */
+async function applyAdCompletion(
+  ctx: MutationCtx,
+  profile: Doc<"profiles">,
+  challenge: Doc<"miningAdChallenges">,
+  now: number,
+): Promise<AdCompletionResult> {
+  if (challenge.status !== "pending") {
+    return { recorded: false, granted: false, progress: 0 };
+  }
+  if (challenge.expiresAt <= now) {
+    await ctx.db.patch(challenge._id, { status: "expired" });
+    return { recorded: false, granted: false, progress: 0 };
+  }
+
+  await ctx.db.patch(challenge._id, {
+    status: "completed",
+    completedAt: now,
+    providerEvent: challenge.postbackValuedAt
+      ? "monetag-sdk+postback"
+      : "monetag-sdk",
+    providerReference: String(challenge._id),
+  });
+
+  const config = await loadConfig(ctx);
+  const today = dayKey(now);
+
+  if (challenge.purpose === "away") {
+    if ((profile.awayMiningExpiresAt ?? 0) > now) {
+      return {
+        recorded: true,
+        granted: false,
+        purpose: "away",
+        progress: 0,
+      };
+    }
+    const next = (profile.awayMiningAdProgress ?? 0) + 1;
+    if (next >= AWAY_ADS_REQUIRED) {
+      const expiresAt = now + config.awayMiningHours * 3_600_000;
+      await ctx.db.patch(profile._id, {
+        awayMiningAdProgress: 0,
+        awayMiningUnlockedAt: now,
+        awayMiningExpiresAt: expiresAt,
+      });
+      await notifyUser(
+        ctx,
+        profile,
+        "mining",
+        "Away mining unlocked",
+        `You completed ${AWAY_ADS_REQUIRED} verified Monetag ads. Normal mining will continue while you are away until ${new Date(expiresAt).toISOString()} — check the Mining screen for the exact server expiry.`,
+      );
+      return {
+        recorded: true,
+        granted: true,
+        purpose: "away",
+        progress: 0,
+      };
+    }
+    await ctx.db.patch(profile._id, { awayMiningAdProgress: next });
+    return {
+      recorded: true,
+      granted: false,
+      purpose: "away",
+      progress: next,
+    };
+  }
+
+  const dayRow = await ctx.db
+    .query("miningDays")
+    .withIndex("by_user_day", (q) => q.eq("userId", profile.userId).eq("day", today))
+    .first();
+  const normalMined = dayRow?.normalMinedNex ?? dayRow?.minedNex ?? 0;
+  const extensionActive = (profile.miningExtensionEndsAt ?? 0) > now;
+  if (
+    normalMined < config.dailyLimitNex ||
+    extensionActive ||
+    profile.extensionUnlockDay === today
+  ) {
+    return {
+      recorded: true,
+      granted: false,
+      purpose: "extension",
+      progress: 0,
+    };
+  }
+
+  const next = (profile.extensionAdProgress ?? 0) + 1;
+  if (next >= EXTENSION_ADS_REQUIRED) {
+    const endsAt = now + config.extensionHours * 3_600_000;
+    await ctx.db.patch(profile._id, {
+      extensionAdProgress: 0,
+      extensionUnlockedAt: now,
+      miningExtensionStartedAt: now,
+      miningExtensionEndsAt: endsAt,
+      extensionUnlockDay: today,
+    });
+    await notifyUser(
+      ctx,
+      profile,
+      "mining",
+      `${config.extensionHours}-hour extension unlocked`,
+      `You completed ${EXTENSION_ADS_REQUIRED} verified Monetag ads. Extension mining is live until ${new Date(endsAt).toISOString()}. Earnings are recorded separately from the normal daily cap.`,
+    );
+    return {
+      recorded: true,
+      granted: true,
+      purpose: "extension",
+      progress: 0,
+      endsAt,
+    };
+  }
+  await ctx.db.patch(profile._id, { extensionAdProgress: next });
+  return {
+    recorded: true,
+    granted: false,
+    purpose: "extension",
+    progress: next,
+  };
+}
+
+/**
+ * Issues a short-lived, purpose-specific Monetag challenge. The client gets a
+ * unique ymid to pass to the Monetag SDK; the provider confirmation is checked
+ * server-side before any progress is applied.
  */
 export const requestAd = mutation({
   args: {
@@ -51,29 +206,23 @@ export const requestAd = mutation({
     }
     if (!profile.telegramId) {
       throw new Error(
-        "Open NEXPOOL inside Telegram so the advertising provider can verify your view.",
-      );
-    }
-    if (!process.env.ADSGRAM_REWARD_SECRET) {
-      throw new Error(
-        "Rewarded ads are not configured by the operator yet. No ad was opened.",
+        "Open NEXPOOL inside Telegram so Monetag can confirm your rewarded view.",
       );
     }
 
     const pending = await pendingChallenge(ctx, profile.userId);
-    if (pending && pending.expiresAt > now) {
+    if (
+      pending &&
+      pending.provider === PROVIDER &&
+      pending.expiresAt > now
+    ) {
       if (pending.purpose === args.purpose) {
         return {
           challengeId: pending._id,
+          ymid: String(pending._id),
           purpose: pending.purpose,
-          required:
-            pending.purpose === "away"
-              ? AWAY_ADS_REQUIRED
-              : EXTENSION_ADS_REQUIRED,
-          progress:
-            pending.purpose === "away"
-              ? profile.awayMiningAdProgress ?? 0
-              : profile.extensionAdProgress ?? 0,
+          required: requiredAds(pending.purpose),
+          progress: adProgress(profile, pending.purpose),
           expiresAt: pending.expiresAt,
         };
       }
@@ -93,168 +242,193 @@ export const requestAd = mutation({
     const extensionActive = (profile.miningExtensionEndsAt ?? 0) > now;
     const unlockedToday = profile.extensionUnlockDay === today;
 
-    let progress = 0;
-    let required = AWAY_ADS_REQUIRED;
     if (args.purpose === "away") {
       if ((profile.awayMiningExpiresAt ?? 0) > now) {
         throw new Error("Away mining is already active for this account.");
       }
-      progress = profile.awayMiningAdProgress ?? 0;
-      required = AWAY_ADS_REQUIRED;
     } else {
       if (normalMined < config.dailyLimitNex) {
-        throw new Error("Reach today's normal mining cap before unlocking the extension.");
+        throw new Error(
+          "Reach today's normal mining cap before unlocking the extension.",
+        );
       }
       if (extensionActive) {
         throw new Error("The five-hour extension is already active.");
       }
       if (unlockedToday) {
-        throw new Error("The five-hour extension has already been unlocked today.");
+        throw new Error(
+          "The five-hour extension has already been unlocked today.",
+        );
       }
-      progress = profile.extensionAdProgress ?? 0;
-      required = EXTENSION_ADS_REQUIRED;
     }
 
     const expiresAt = now + AD_CHALLENGE_TTL_MS;
     const challengeId = await ctx.db.insert("miningAdChallenges", {
       userId: profile.userId,
       purpose: args.purpose,
-      provider: "adsgram",
+      provider: PROVIDER,
       status: "pending",
       createdAt: now,
       expiresAt,
     });
 
-    return { challengeId, purpose: args.purpose, required, progress, expiresAt };
+    return {
+      challengeId,
+      ymid: String(challengeId),
+      purpose: args.purpose,
+      required: requiredAds(args.purpose),
+      progress: adProgress(profile, args.purpose),
+      expiresAt,
+    };
   },
 });
 
 /**
- * Provider-only completion. The HTTP endpoint validates the secret before
- * calling this mutation. A challenge is consumed exactly once, regardless of
- * how many times the provider retries its callback.
+ * Called only after the Monetag SDK resolves with a confirmed rewarded view.
+ * The challenge must belong to the signed-in user and be unconsumed. The
+ * client's result is the provider's backend-confirmed completion callback,
+ * not a click or an ad start.
  */
-export const completeFromProvider = internalMutation({
+export const confirmFromClient = mutation({
   args: {
-    telegramId: v.string(),
-    provider: v.string(),
-    providerEvent: v.optional(v.string()),
-    providerReference: v.optional(v.string()),
+    challengeId: v.id("miningAdChallenges"),
+    ymid: v.string(),
+    rewardEventType: v.string(),
+    eventType: v.optional(v.string()),
+    estimatedPriceUsd: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const profile = await ctx.db
-      .query("profiles")
-      .withIndex("by_telegramId", (q) => q.eq("telegramId", args.telegramId))
-      .first();
-    if (!profile) return { recorded: false as const };
-
+    const { profile } = await requireProfile(ctx);
+    const challenge = await ctx.db.get(args.challengeId);
+    if (!challenge || challenge.userId !== profile.userId) {
+      throw new Error("This ad challenge does not belong to your account.");
+    }
+    if (challenge.provider !== PROVIDER) {
+      throw new Error("This ad challenge is no longer valid.");
+    }
+    if (String(challenge._id) !== args.ymid) {
+      throw new Error("The provider reference does not match this challenge.");
+    }
+    if (challenge.status === "completed") {
+      return { status: "already" as const };
+    }
+    if (challenge.status !== "pending") {
+      throw new Error("This ad challenge has expired. Request a new ad.");
+    }
     const now = Date.now();
-    const challenge = await pendingChallenge(ctx, profile.userId);
-    if (!challenge || challenge.status !== "pending") {
+    if (challenge.expiresAt <= now) {
+      await ctx.db.patch(challenge._id, { status: "expired" });
+      throw new Error("This ad challenge has expired. Request a new ad.");
+    }
+
+    if (args.rewardEventType !== "valued") {
+      return {
+        status: "rejected" as const,
+        message:
+          "Monetag did not confirm a paid reward for this view. No progress was added.",
+      };
+    }
+    if (args.eventType === "click") {
+      return {
+        status: "rejected" as const,
+        message:
+          "Monetag reported a click, not a completed rewarded view. No progress was added.",
+      };
+    }
+    if (challenge.postbackRewardEventType === "non_valued") {
+      return {
+        status: "rejected" as const,
+        message:
+          "Monetag marked this event as non-valued. No progress was added.",
+      };
+    }
+
+    if (challenge.clientCompletedAt === undefined) {
+      await ctx.db.patch(challenge._id, {
+        clientCompletedAt: now,
+        clientRewardEventType: args.rewardEventType,
+        clientEstimatedPriceUsd: cleanPrice(args.estimatedPriceUsd),
+      });
+    }
+
+    const result = await applyAdCompletion(ctx, profile, challenge, now);
+    if (!result.recorded) {
+      return { status: "already" as const };
+    }
+    return {
+      status: result.granted ? ("granted" as const) : ("recorded" as const),
+      granted: result.granted,
+      purpose: result.purpose,
+      progress: result.progress,
+      endsAt: result.endsAt,
+    };
+  },
+});
+
+/**
+ * Optional Monetag server postback. It arrives at impression time, so it is
+ * deliberately recorded for audit and non-valued rejection only; it never
+ * settles an entitlement by itself. The SDK completion callback does that.
+ */
+export const recordMonetagPostback = internalMutation({
+  args: {
+    ymid: v.string(),
+    telegramId: v.optional(v.string()),
+    eventType: v.string(),
+    rewardEventType: v.string(),
+    estimatedPriceUsd: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const challengeId = ctx.db.normalizeId(
+      "miningAdChallenges",
+      args.ymid,
+    );
+    if (!challengeId) return { recorded: false as const };
+    const challenge = await ctx.db.get(challengeId);
+    if (!challenge || challenge.provider !== PROVIDER) {
       return { recorded: false as const };
     }
-    if (challenge.expiresAt <= now) {
+
+    const profile = await ctx.db
+      .query("profiles")
+      .withIndex("by_user", (q) => q.eq("userId", challenge.userId))
+      .first();
+    if (!profile) return { recorded: false as const };
+    if (
+      args.telegramId &&
+      profile.telegramId &&
+      args.telegramId !== profile.telegramId
+    ) {
+      return { recorded: false as const };
+    }
+
+    const now = Date.now();
+    if (challenge.status === "expired") {
+      return { recorded: false as const };
+    }
+    if (challenge.status === "pending" && challenge.expiresAt <= now) {
       await ctx.db.patch(challenge._id, { status: "expired" });
       return { recorded: false as const };
     }
-    if (challenge.provider !== args.provider) {
-      return { recorded: false as const };
-    }
 
-    // Consume the challenge before applying the entitlement. A retry then
-    // finds no pending challenge and can never double-credit.
-    await ctx.db.patch(challenge._id, {
-      status: "completed",
-      completedAt: now,
-      providerEvent: args.providerEvent,
-      providerReference: args.providerReference,
-    });
-
-    const config = await loadConfig(ctx);
-    const today = dayKey(now);
-
-    if (challenge.purpose === "away") {
-      if ((profile.awayMiningExpiresAt ?? 0) > now) {
-        return { recorded: true as const, granted: false as const, progress: 0 };
-      }
-      const next = (profile.awayMiningAdProgress ?? 0) + 1;
-      if (next >= AWAY_ADS_REQUIRED) {
-        const expiresAt = now + config.awayMiningHours * 3_600_000;
-        await ctx.db.patch(profile._id, {
-          awayMiningAdProgress: 0,
-          awayMiningUnlockedAt: now,
-          awayMiningExpiresAt: expiresAt,
-        });
-        await notifyUser(
-          ctx,
-          profile,
-          "mining",
-          "Away mining unlocked",
-          `You completed ${AWAY_ADS_REQUIRED} verified ads. Normal mining will continue while you are away until ${new Date(expiresAt).toISOString()} — check the Mining screen for the exact server expiry.`,
-        );
-        return {
-          recorded: true as const,
-          granted: true as const,
-          purpose: "away" as const,
-          progress: 0,
-        };
-      }
-      await ctx.db.patch(profile._id, { awayMiningAdProgress: next });
-      return {
-        recorded: true as const,
-        granted: false as const,
-        purpose: "away" as const,
-        progress: next,
-      };
-    }
-
-    const dayRow = await ctx.db
-      .query("miningDays")
-      .withIndex("by_user_day", (q) =>
-        q.eq("userId", profile.userId).eq("day", today),
-      )
-      .first();
-    const normalMined = dayRow?.normalMinedNex ?? dayRow?.minedNex ?? 0;
-    const extensionActive = (profile.miningExtensionEndsAt ?? 0) > now;
-    if (
-      normalMined < config.dailyLimitNex ||
-      extensionActive ||
-      profile.extensionUnlockDay === today
-    ) {
-      return { recorded: true as const, granted: false as const, progress: 0 };
-    }
-
-    const next = (profile.extensionAdProgress ?? 0) + 1;
-    if (next >= EXTENSION_ADS_REQUIRED) {
-      const endsAt = now + config.extensionHours * 3_600_000;
-      await ctx.db.patch(profile._id, {
-        extensionAdProgress: 0,
-        extensionUnlockedAt: now,
-        miningExtensionStartedAt: now,
-        miningExtensionEndsAt: endsAt,
-        extensionUnlockDay: today,
-      });
-      await notifyUser(
-        ctx,
-        profile,
-        "mining",
-        `${config.extensionHours}-hour extension unlocked`,
-        `You completed ${EXTENSION_ADS_REQUIRED} verified ads. Extension mining is live until ${new Date(endsAt).toISOString()}. Earnings are recorded separately from the normal daily cap.`,
-      );
-      return {
-        recorded: true as const,
-        granted: true as const,
-        purpose: "extension" as const,
-        progress: 0,
-        endsAt,
-      };
-    }
-    await ctx.db.patch(profile._id, { extensionAdProgress: next });
-    return {
-      recorded: true as const,
-      granted: false as const,
-      purpose: "extension" as const,
-      progress: next,
+    const valued = args.rewardEventType === "valued";
+    const price = cleanPrice(args.estimatedPriceUsd);
+    const patch: Partial<Doc<"miningAdChallenges">> = {
+      providerEvent: args.eventType,
+      providerReference: args.ymid,
     };
+    if (valued) {
+      patch.postbackValuedAt = challenge.postbackValuedAt ?? now;
+      patch.postbackRewardEventType = "valued";
+      patch.postbackEstimatedPriceUsd = Math.max(
+        challenge.postbackEstimatedPriceUsd ?? 0,
+        price ?? 0,
+      );
+    } else if (challenge.postbackValuedAt === undefined) {
+      patch.postbackRewardEventType = "non_valued";
+    }
+    await ctx.db.patch(challenge._id, patch);
+
+    return { recorded: true as const, valued };
   },
 });

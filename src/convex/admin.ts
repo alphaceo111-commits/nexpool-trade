@@ -161,9 +161,9 @@ export const overview = query({
         adProviderConfigured: Boolean(
           process.env.AD_PROVIDER_VERIFY_URL && process.env.AD_PROVIDER_API_KEY,
         ),
-        rewardedAdProviderConfigured: Boolean(
-          process.env.ADSGRAM_REWARD_SECRET,
-        ),
+        // The Monetag zone SDK is bundled in the app shell. The optional
+        // postback secret is not required for the SDK-confirmed reward flow.
+        rewardedAdProviderConfigured: true,
       },
       counts: {
         users: profiles.length,

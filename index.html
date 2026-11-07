@@ -17,17 +17,15 @@
        theme, safe areas and the viewport controls. It must load before the app
        module so the session gate can read initData on first render. -->
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <!-- Monetag rewarded ads (zone 12157822). Exposes show_12157822, used by the
-       sponsored-view task. Rewards are still validated by the Convex backend. -->
+  <!-- Monetag rewarded ads (zone 12157822). Exposes show_12157822, used by
+       sponsored-view tasks and the mining ad unlocks. Rewards are still
+       validated by the Convex backend. -->
   <script
     src="https://libtl.com/sdk.js"
     data-zone="12157822"
     data-sdk="show_12157822"
     async
   ></script>
-  <!-- Adsgram rewarded ads. The server-issued challenge and Reward URL make
-       the provider callback, not this SDK promise, the reward authority. -->
-  <script src="https://sad.adsgram.ai/js/sad.min.js" async></script>
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-title" content="NEXPOOL" />
   <title>NEXPOOL — Verified NEX Mining Rewards</title>

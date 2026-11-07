@@ -30,7 +30,7 @@ const FAQ = [
   },
   {
     q: "How do the verified ad unlocks work?",
-    a: "Away mining is one entitlement: 10 completed Adsgram reward views unlock the configured permission window. The 5-hour extension is a separate entitlement: after the normal cap is reached, 20 completed Adsgram reward views unlock a separate extension bucket. Ad opens and clicks never count; only the provider's completed-view callback can consume a server-issued challenge.",
+    a: "Away mining is one entitlement: 10 completed Monetag reward views unlock the configured permission window. The 5-hour extension is a separate entitlement: after the normal cap is reached, 20 completed Monetag reward views unlock a separate extension bucket. Ad opens and clicks never count; only the Monetag SDK's backend-confirmed completed-view callback can consume a server-issued challenge.",
   },
   {
     q: "Why hasn't my referral counted?",

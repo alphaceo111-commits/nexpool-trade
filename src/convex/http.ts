@@ -162,44 +162,46 @@ http.route({
 });
 
 /**
- * Adsgram server-side reward callback. Adsgram only calls this after a rewarded
- * view is completed, so an ad click or an unfinished opening is never a
- * completion. The secret and pending challenge make callbacks idempotent and
- * impossible to replay into a second reward.
+ * Optional Monetag postback. Monetag sends this at impression time, so it is
+ * never treated as a completed view. It only records monetization evidence and
+ * can reject an event Monetag later marks non-valued. The Monetag SDK's
+ * backend-confirmed reward callback is what settles the challenge.
  */
 http.route({
-  path: "/adsgram/reward",
+  path: "/monetag/postback",
   method: "GET",
   handler: httpAction(async (ctx, request) => {
-    const expected = process.env.ADSGRAM_REWARD_SECRET;
+    const expected = process.env.MONETAG_POSTBACK_SECRET;
     if (!expected) {
-      return new Response("reward endpoint not configured", { status: 503 });
+      return new Response("postback endpoint not configured", { status: 503 });
     }
     const url = new URL(request.url);
     const secret = url.searchParams.get("secret") ?? "";
     if (!secret || !sameSecret(secret, expected)) {
       return new Response("unauthorized", { status: 403 });
     }
-    const telegramId =
-      url.searchParams.get("userid") ??
-      url.searchParams.get("telegram_id") ??
-      "";
-    if (!/^\d+$/.test(telegramId)) {
+
+    const ymid = url.searchParams.get("ymid") ?? "";
+    const telegramId = url.searchParams.get("telegram_id") ?? "";
+    const priceRaw = url.searchParams.get("estimated_price");
+    const price = priceRaw === null ? undefined : Number(priceRaw);
+    if (!ymid) {
       return new Response(JSON.stringify({ ok: true, recorded: false }), {
         status: 200,
         headers: { "content-type": "application/json" },
       });
     }
+
     const result = await ctx.runMutation(
-      internal.miningAds.completeFromProvider,
+      internal.miningAds.recordMonetagPostback,
       {
-        telegramId,
-        provider: "adsgram",
-        providerEvent: url.searchParams.get("event") ?? "reward",
-        providerReference:
-          url.searchParams.get("adid") ??
-          url.searchParams.get("reference") ??
-          undefined,
+        ymid,
+        telegramId: /^\d+$/.test(telegramId) ? telegramId : undefined,
+        eventType: url.searchParams.get("event_type") ?? "impression",
+        rewardEventType:
+          url.searchParams.get("reward_event_type") ?? "non_valued",
+        estimatedPriceUsd:
+          price !== undefined && Number.isFinite(price) ? price : undefined,
       },
     );
     return new Response(JSON.stringify({ ok: true, ...result }), {

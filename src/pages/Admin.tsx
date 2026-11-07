@@ -299,9 +299,7 @@ function Overview({ onTab }: { onTab: (tab: TabKey) => void }) {
           },
           {
             label: "Rewarded ad verifier",
-            value: service.rewardedAdProviderConfigured
-              ? "Adsgram ready"
-              : "Set ADSGRAM_REWARD_SECRET",
+            value: "Monetag SDK",
             good: service.rewardedAdProviderConfigured,
           },
         ].map((item) => (

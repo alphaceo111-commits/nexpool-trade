@@ -1199,7 +1199,7 @@ async function buildAdminMiningSettings(
       `Daily cap: ${formatNex(config.dailyLimitNex)} NEX / UTC day`,
       `Away mining: ${config.awayMiningHours}h after 10 verified ads`,
       `Cap extension: ${config.extensionHours}h after 20 verified ads`,
-      `Rewarded ad verifier: ${process.env.ADSGRAM_REWARD_SECRET ? "configured" : "missing ADSGRAM_REWARD_SECRET"}`,
+      `Rewarded ads: Monetag SDK · postback ${process.env.MONETAG_POSTBACK_SECRET ? "configured" : "optional / not set"}`,
       `Referral bonus: ${formatNex(config.referralBonusNexPerHour)} NEX/h · cap ${config.referralBonusCap}`,
       `Referral requirement: ${config.referralTaskTarget} tasks · ${config.qualifiedReferralTarget} qualified`,
       "",
