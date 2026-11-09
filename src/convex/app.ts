@@ -8,7 +8,6 @@ import {
   computeSpeed,
   ensureAccount,
   heartbeatMiningSession,
-  listReferralRows,
   loadConfig,
   notifyUser,
   readMiningSnapshot,
@@ -21,6 +20,12 @@ import {
 import { getViewer } from "./engine";
 import { LEVEL_DEFAULTS, claimedLevel, seedLevels } from "./levels";
 import { seedBotStartMissions, seedStarterMissions } from "./missions";
+import {
+  attachReferral,
+  listReferralDesk,
+  normalizeReferralCode,
+  syncReferralProgress,
+} from "./referralEngine";
 
 /**
  * One-time stored-config patch. Existing deployments may still carry the old
@@ -66,12 +71,38 @@ export const ensure = mutation({
     displayName: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const { profile } = await ensureAccount(ctx, args);
+    let { profile } = await ensureAccount(ctx);
+
+    // Referral capture happens on every launch, not only at account creation.
+    // The engine writes a permanent pending record keyed by Telegram id, so a
+    // referral survives a slow session, a reopen, or a duplicate update.
+    const code = normalizeReferralCode(args.referralCode);
+    if (code) {
+      const result = await attachReferral(ctx, {
+        code,
+        inviteeProfile: profile,
+        inviteeTelegramId: profile.telegramId,
+        source: "mini_app",
+      });
+      if (result.record) {
+        profile = (await ctx.db.get(profile._id))!;
+      }
+    }
+    // Always reconcile, not only when the profile has a legacy referrer: a
+    // pending bot-only record is keyed by Telegram id and links on this launch.
+    await syncReferralProgress(ctx, profile);
+    profile = (await ctx.db.get(profile._id))!;
+
     await seedStarterMissions(ctx);
     await seedBotStartMissions(ctx);
     await seedLevels(ctx);
     await applyMiningEconomyV2(ctx);
-    return { profileId: profile._id, nexId: profile.nexId };
+    return {
+      profileId: profile._id,
+      nexId: profile.nexId,
+      referralCode: code ?? null,
+      referred: Boolean(profile.referredBy),
+    };
   },
 });
 
@@ -89,8 +120,17 @@ export const snapshot = query({
     );
     const speed = await computeSpeed(ctx, profile, config);
     const mining = await readMiningSnapshot(ctx, profile, balance, config, speed);
-    const referrals = await listReferralRows(ctx, profile._id, config);
+    // The desk reads permanent referral records (including bot-started invitees
+    // who have not opened the app yet) plus legacy profile links.
+    const referrals = await listReferralDesk(ctx, profile._id, config);
     const qualified = referrals.filter((row) => row.qualified);
+    const pendingCount = referrals.filter((row) => row.status === "pending").length;
+    const inProgressCount = referrals.filter(
+      (row) => row.status === "in_progress",
+    ).length;
+    const rejectedCount = referrals.filter(
+      (row) => row.status === "rejected",
+    ).length;
 
     const tasks = await ctx.db.query("tasks").collect();
     const completions = await ctx.db
@@ -325,6 +365,9 @@ export const snapshot = query({
         total: referrals.length,
         qualified: qualified.length,
         incomplete: referrals.length - qualified.length,
+        pending: pendingCount,
+        inProgress: inProgressCount,
+        rejected: rejectedCount,
         bonusNexPerHour: speed.referralBonus,
         target: config.qualifiedReferralTarget,
         taskTarget: config.referralTaskTarget,

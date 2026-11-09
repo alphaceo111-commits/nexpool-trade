@@ -8,6 +8,7 @@ import {
 } from "./_generated/server";
 import { telegramAdminIds, verifyTelegramInitData } from "./auth/telegram";
 import { ensureAccount } from "./engine";
+import { attachReferral, syncReferralProgress } from "./referralEngine";
 
 /**
  * Links the Telegram identity to the signed-in account. Sign-in itself happens
@@ -67,9 +68,7 @@ export const attachIdentity = internalMutation({
     startParam: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const { profile } = await ensureAccount(ctx, {
-      referralCode: args.startParam,
-    });
+    let { profile } = await ensureAccount(ctx);
 
     const duplicate = await ctx.db
       .query("profiles")
@@ -91,7 +90,28 @@ export const attachIdentity = internalMutation({
       displayName: displayName.slice(0, 40),
       username: args.username?.slice(0, 32) ?? profile.username,
       photoUrl: args.photoUrl ?? profile.photoUrl,
+      lastActiveAt: Date.now(),
     });
+    profile = (await ctx.db.get(profile._id))!;
+
+    // The start_param is Telegram's signed Mini App launch payload. Binding it
+    // here covers every launch path, including one where the profile already
+    // existed (a duplicate /start or a later reopen).
+    if (args.startParam) {
+      await attachReferral(ctx, {
+        code: args.startParam,
+        inviteeProfile: profile,
+        inviteeTelegramId: args.telegramId,
+        inviteeName: displayName,
+        inviteeUsername: args.username,
+        inviteePhotoUrl: args.photoUrl,
+        source: "mini_app",
+      });
+      profile = (await ctx.db.get(profile._id))!;
+    }
+    // Reconcile even without a start_param so a record created by the bot is
+    // linked to this profile by verified Telegram id on any later reopen.
+    await syncReferralProgress(ctx, profile);
 
     // The provider sets this at account creation too, but existing accounts
     // created before the allowlist was configured must be promoted here. This

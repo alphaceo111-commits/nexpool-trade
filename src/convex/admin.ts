@@ -9,9 +9,9 @@ import {
   loadConfig,
   notifyUser,
   requireAdmin,
+  resolveAdminAccess,
   roundNex,
 } from "./engine";
-import { telegramAdminIds } from "./auth/telegram";
 
 const taskCategory = v.union(
   v.literal("advertisement"),
@@ -34,28 +34,37 @@ const verificationKind = v.union(
 export const access = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) {
+    const access = await resolveAdminAccess(ctx);
+    if (!access.signedIn || !access.userId) {
       return {
         signedIn: false,
         isAdmin: false,
         canClaim: false,
-        telegramAdminAllowlistConfigured: telegramAdminIds().length > 0,
+        telegramAdminAllowlistConfigured: access.allowlistConfigured,
+        adminSource: null,
+        telegramId: null,
+        reason: access.reason,
       };
     }
     const config = await loadConfig(ctx);
-    const user = await ctx.db.get(userId);
+    const user = await ctx.db.get(access.userId);
     const admins = (await ctx.db.query("users").collect()).filter(
       (row) => row.role === "admin",
     );
-    const isAdmin = config.ownerUserId === userId || user?.role === "admin";
     return {
       signedIn: true,
-      isAdmin: Boolean(isAdmin),
-      canClaim: !isAdmin && !config.ownerUserId && admins.length === 0,
+      isAdmin: access.isAdmin,
+      canClaim:
+        !access.isAdmin &&
+        !config.ownerUserId &&
+        admins.length === 0 &&
+        !access.allowlistConfigured,
       email: user?.email ?? null,
       ownerConfigured: Boolean(config.ownerUserId),
-      telegramAdminAllowlistConfigured: telegramAdminIds().length > 0,
+      telegramAdminAllowlistConfigured: access.allowlistConfigured,
+      adminSource: access.source,
+      telegramId: access.telegramId,
+      reason: access.reason,
     };
   },
 });
@@ -69,6 +78,11 @@ export const claimOwner = mutation({
     const config = await loadConfig(ctx);
     if (config.ownerUserId) {
       throw new Error("An operator is already configured.");
+    }
+    if ((await resolveAdminAccess(ctx)).allowlistConfigured) {
+      throw new Error(
+        "Administrator access is controlled by TELEGRAM_ADMIN_IDS on the backend, so operator claiming is disabled.",
+      );
     }
     const admins = (await ctx.db.query("users").collect()).filter(
       (row) => row.role === "admin",

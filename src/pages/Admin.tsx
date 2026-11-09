@@ -108,7 +108,7 @@ export default function Admin() {
           access.canClaim
             ? "No operator is configured on this deployment. The first signed-in account can claim the console once; the action is audited."
             : access.telegramAdminAllowlistConfigured
-              ? "A Telegram admin allowlist is configured, but this Telegram account is not on it. Sign in from the allowlisted Telegram account or update ADMIN_TELEGRAM_ID in the Keys tab."
+              ? "A Telegram admin allowlist is configured, but this verified Telegram account is not on it. Sign in from the allowlisted account or update TELEGRAM_ADMIN_IDS in the Keys tab."
               : "This account is not authorized for admin mutations. No Telegram admin allowlist is configured; the existing operator must grant the role in the backend."
         }
         action={
@@ -153,6 +153,12 @@ export default function Admin() {
           <span className="ml-auto hidden items-center gap-1.5 border border-warn/40 bg-warn/[0.06] px-2 py-1 font-mono text-[9px] uppercase tracking-[0.12em] text-warn sm:flex">
             <ShieldCheck className="size-3" /> authorized operator
           </span>
+          <Link
+            to="/admin/reports"
+            className="flex items-center gap-1 border border-primary/30 bg-primary/[0.06] px-2 py-1 font-mono text-[9px] uppercase tracking-[0.1em] text-primary"
+          >
+            Reports <ArrowUpRight className="size-3" />
+          </Link>
           <Link
             to="/admin/telegram"
             className="hidden items-center gap-1 font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground hover:text-foreground sm:flex"

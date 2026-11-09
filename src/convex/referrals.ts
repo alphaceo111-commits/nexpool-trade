@@ -1,67 +1,65 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { getViewer, loadConfig, requireProfile, roundNex } from "./engine";
 import {
-  getViewer,
-  listReferralRows,
-  loadConfig,
-  notifyUser,
-  requireProfile,
-} from "./engine";
+  attachReferral,
+  listReferralDesk,
+  normalizeReferralCode,
+} from "./referralEngine";
 
 /**
- * Attach a referral code to an existing account. Only fresh accounts can be
- * claimed, and chains that would create a loop are rejected.
+ * Attach a referral code to an existing account. The first valid attribution
+ * wins; self-referrals, unknown codes and a second inviter are rejected.
  */
 export const applyCode = mutation({
   args: { code: v.string() },
   handler: async (ctx, args) => {
     const { profile } = await requireProfile(ctx);
-    const code = args.code.trim().toUpperCase();
-    if (!code) throw new Error("Enter a referral code.");
+    const code = normalizeReferralCode(args.code);
+    if (!code) throw new Error("Enter a valid referral code.");
 
-    if (profile.referredBy) {
-      throw new Error("This account already has a referrer.");
-    }
-    if (Date.now() - profile.createdAt > 7 * 864e5) {
-      throw new Error("Referral codes can only be applied within 7 days of signup.");
-    }
-
-    const referrer = await ctx.db
-      .query("profiles")
-      .withIndex("by_referralCode", (q) => q.eq("referralCode", code))
-      .first();
-    if (!referrer) throw new Error("That referral code does not exist.");
-    if (referrer._id === profile._id) {
-      throw new Error("You cannot refer yourself.");
-    }
-    if (referrer.referredBy === profile._id) {
-      throw new Error("This referral would create a loop.");
-    }
-
-    await ctx.db.patch(profile._id, {
-      referredBy: referrer._id,
-      referredAt: Date.now(),
+    const result = await attachReferral(ctx, {
+      code,
+      inviteeProfile: profile,
+      inviteeTelegramId: profile.telegramId,
+      source: "mini_app",
     });
-    const config = await loadConfig(ctx);
-    await notifyUser(
-      ctx,
-      referrer,
-      "referral",
-      "New referral joined",
-      `${profile.displayName} linked your code. ${config.referralTaskTarget} verified tasks qualify them.`,
-    );
-    return { attached: true };
+
+    if (!result.attached) {
+      switch (result.reason) {
+        case "unknown-code":
+          throw new Error("That referral code does not exist.");
+        case "self":
+          throw new Error("You cannot refer yourself.");
+        case "already-attributed":
+        case "already-referred":
+          throw new Error("This account already has a referrer.");
+        case "loop":
+          throw new Error("This invitation would create a referral loop.");
+        default:
+          throw new Error("That referral code could not be applied.");
+      }
+    }
+
+    // `attachReferral` already wrote the single join notification for this
+    // record; a second one here would double-notify the inviter.
+    return { attached: true, status: result.record?.status ?? "pending" };
   },
 });
 
-/** Referral detail for the referrals screen, backed by live task counts. */
+const countByStatus = (
+  rows: Awaited<ReturnType<typeof listReferralDesk>>,
+  status: string,
+) => rows.filter((row) => row.status === status).length;
+
+/** Referral desk: permanent records plus live task progress. */
 export const summary = query({
   args: {},
   handler: async (ctx) => {
     const { profile } = await getViewer(ctx);
     if (!profile) return null;
     const config = await loadConfig(ctx);
-    const rows = await listReferralRows(ctx, profile._id, config);
+    const rows = await listReferralDesk(ctx, profile._id, config);
     const qualified = rows.filter((row) => row.qualified);
     const referralLedger = await ctx.db
       .query("ledger")
@@ -74,12 +72,18 @@ export const summary = query({
       rows,
       total: rows.length,
       qualified: qualified.length,
+      pending: countByStatus(rows, "pending"),
+      inProgress: countByStatus(rows, "in_progress"),
+      rejected: countByStatus(rows, "rejected"),
       incomplete: rows.length - qualified.length,
       target: config.qualifiedReferralTarget,
       taskTarget: config.referralTaskTarget,
-      bonusPerReferral: config.referralBonusNexPerHour,
+      bonusPerReferral: roundNex(config.referralBonusNexPerHour),
       bonusCap: config.referralBonusCap,
-      bonusNexPerHour: qualified.length * config.referralBonusNexPerHour,
+      bonusNexPerHour: roundNex(
+        Math.min(qualified.length, config.referralBonusCap) *
+          config.referralBonusNexPerHour,
+      ),
       rewards: referralLedger
         .filter((row) => row.kind === "referral")
         .map((row) => ({

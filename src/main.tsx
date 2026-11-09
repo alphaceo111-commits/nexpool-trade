@@ -17,6 +17,7 @@ const MiningPage = lazy(() => import("./pages/app/Mining"));
 const TasksPage = lazy(() => import("./pages/app/Tasks"));
 const LevelsPage = lazy(() => import("./pages/app/Levels"));
 const ReferralsPage = lazy(() => import("./pages/app/Referrals"));
+const LeaderboardPage = lazy(() => import("./pages/app/Leaderboard"));
 const WalletPage = lazy(() => import("./pages/app/Wallet"));
 const DepositPage = lazy(() => import("./pages/app/Deposit"));
 const WithdrawPage = lazy(() => import("./pages/app/Withdraw"));
@@ -25,6 +26,7 @@ const HelpPage = lazy(() => import("./pages/app/Help"));
 const ProfilePage = lazy(() => import("./pages/app/Profile"));
 const NotificationsPage = lazy(() => import("./pages/app/Notifications"));
 const AdminPage = lazy(() => import("./pages/Admin"));
+const AdminReportsPage = lazy(() => import("./pages/AdminReports"));
 const TelegramCenterPage = lazy(() => import("./pages/TelegramCenter"));
 const BotOpsPage = lazy(() => import("./pages/BotOps"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
@@ -145,6 +147,7 @@ createRoot(document.getElementById("root")!).render(
                   <Route path="tasks" element={<TasksPage />} />
                   <Route path="levels" element={<LevelsPage />} />
                   <Route path="referrals" element={<ReferralsPage />} />
+                  <Route path="leaderboard" element={<LeaderboardPage />} />
                   <Route path="wallet" element={<WalletPage />} />
                   <Route path="deposit" element={<DepositPage />} />
                   <Route path="withdraw" element={<WithdrawPage />} />
@@ -154,6 +157,7 @@ createRoot(document.getElementById("root")!).render(
                   <Route path="notifications" element={<NotificationsPage />} />
                 </Route>
                 <Route path="/admin" element={<AdminPage />} />
+                <Route path="/admin/reports" element={<AdminReportsPage />} />
                 <Route path="/admin/telegram" element={<TelegramCenterPage />} />
                 <Route path="/admin/bot" element={<BotOpsPage />} />
                 <Route path="*" element={<NotFound />} />

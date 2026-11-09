@@ -124,16 +124,33 @@ export async function verifyTelegramInitData(
 
 export const TELEGRAM_PROVIDER_ID = "telegram";
 
-/** Telegram ids the operator allowlisted for backend admin access. */
+/**
+ * Telegram ids the operator allowlisted for backend admin access. All
+ * supported variable names are merged (not first-wins) so an existing single-id
+ * setup keeps working, and `TELEGRAM_ADMIN_IDS` supports a comma-separated
+ * list. Only digit strings are accepted; compare them as strings.
+ */
 export function telegramAdminIds(): string[] {
-  return (
-    process.env.ADMIN_TELEGRAM_ID ??
-    process.env.TELEGRAM_ADMIN_ID ??
-    process.env.TELEGRAM_OWNER_ID ??
-    ""
-  )
-    .split(/[\s,]+/)
-    .filter(Boolean);
+  const raw = [
+    process.env.TELEGRAM_ADMIN_IDS,
+    process.env.TELEGRAM_ADMIN_ID,
+    process.env.TELEGRAM_OWNER_ID,
+    process.env.ADMIN_TELEGRAM_ID,
+  ];
+  const ids: string[] = [];
+  for (const value of raw) {
+    if (!value) continue;
+    for (const part of value.split(/[\s,;]+/)) {
+      const id = part.trim();
+      if (!/^\d{3,20}$/.test(id)) continue;
+      if (!ids.includes(id)) ids.push(id);
+    }
+  }
+  return ids;
+}
+
+export function isTelegramAdmin(telegramId: string | null | undefined) {
+  return Boolean(telegramId && telegramAdminIds().includes(telegramId));
 }
 
 /**

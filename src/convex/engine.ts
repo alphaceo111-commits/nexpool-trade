@@ -2,6 +2,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { isTelegramAdmin, telegramAdminIds } from "./auth/telegram";
 
 export const CONFIG_KEY = "default";
 
@@ -250,32 +251,17 @@ export async function ensureAccount(
     balance = (await ctx.db.get(balanceId))!;
   }
 
-  const code = options.referralCode?.trim().toUpperCase();
-  if (code && !profile.referredBy) {
-    const referrer = await ctx.db
-      .query("profiles")
-      .withIndex("by_referralCode", (q) => q.eq("referralCode", code))
-      .first();
-    if (referrer && referrer._id !== profile._id) {
-      const alreadyReferred =
-        referrer.referredBy === profile._id ? true : false;
-      if (!alreadyReferred) {
-        await ctx.db.patch(profile._id, {
-          referredBy: referrer._id,
-          referredAt: now,
-        });
-        profile = (await ctx.db.get(profile._id))!;
-        await ctx.db.insert("notifications", {
-          userId: referrer.userId,
-          kind: "referral",
-          title: "New referral joined",
-          body: `${profile.displayName} joined with your code. They need ${CONFIG_DEFAULTS.referralTaskTarget} verified tasks to qualify.`,
-          createdAt: now,
-        });
-      }
-    }
-  }
+  // Presence is only written by backend events. Keeping it here means a real
+  // Mini App launch counts as activity; refreshing a report never does.
+  await ctx.db.patch(profile._id, {
+    lastActiveAt: now,
+    miniAppOpenedAt: profile.miniAppOpenedAt ?? now,
+  });
+  profile = (await ctx.db.get(profile._id))!;
 
+  // Referral attribution is deliberately NOT done here. The referral engine
+  // owns it and is called by `app.ensure` / `telegram.attachIdentity`, which
+  // know whether the launch came from the bot or the Mini App.
   return { profile, balance };
 }
 
@@ -1107,6 +1093,7 @@ export async function startMiningSession(
     miningSessionHeartbeatAt: now,
     miningSessionCreditedAt: now,
     awayMiningStartedAt: undefined,
+    lastActiveAt: now,
   });
   return { creditedNex, status: "active" as const };
 }
@@ -1123,6 +1110,7 @@ export async function heartbeatMiningSession(
     return await startMiningSession(ctx, profile, balance, config, speed);
   }
   const now = Date.now();
+  await ctx.db.patch(profile._id, { lastActiveAt: now });
   if (!config.miningEnabled || profile.restricted || speed.total <= 0) {
     return {
       creditedNex: 0,
@@ -1188,17 +1176,115 @@ export async function notifyUser(
   }
 }
 
-export async function requireAdmin(ctx: MutationCtx | QueryCtx) {
+/**
+ * Resolves the verified Telegram id for a signed-in auth user. The profile is
+ * the primary source; the auth account table is the fallback so admin access
+ * works even before the profile sync has run.
+ */
+export async function resolveTelegramId(
+  ctx: QueryCtx | MutationCtx,
+  userId: Id<"users">,
+  profile: Doc<"profiles"> | null,
+): Promise<string | null> {
+  if (profile?.telegramId) return profile.telegramId;
+  const account = await ctx.db
+    .query("authAccounts")
+    .withIndex("userIdAndProvider", (q) =>
+      q.eq("userId", userId).eq("provider", "telegram"),
+    )
+    .first();
+  return account?.providerAccountId ?? null;
+}
+
+export type AdminAccess = {
+  signedIn: boolean;
+  isAdmin: boolean;
+  telegramId: string | null;
+  allowlistConfigured: boolean;
+  source: "env_telegram" | "role" | "owner" | null;
+  reason: string | null;
+  userId: Id<"users"> | null;
+  label: string;
+};
+
+/**
+ * Server-side administrator resolution. The Telegram allowlist is re-read from
+ * the environment on every call and compared as a string against the verified
+ * Telegram identity, so admin access survives refresh, a new session and a new
+ * device without creating a new admin account or trusting the browser.
+ */
+export async function resolveAdminAccess(
+  ctx: QueryCtx | MutationCtx,
+): Promise<AdminAccess> {
   const userId = await getAuthUserId(ctx);
-  if (!userId) throw new Error("Operator sign-in required.");
-  const config = await loadConfig(ctx);
-  const user = await ctx.db.get(userId);
-  const isOwner = config.ownerUserId === userId;
-  const isRoleAdmin = user?.role === "admin";
-  if (!isOwner && !isRoleAdmin) {
-    throw new Error("Operator authorization required.");
+  const allowlist = telegramAdminIds();
+  if (!userId) {
+    return {
+      signedIn: false,
+      isAdmin: false,
+      telegramId: null,
+      allowlistConfigured: allowlist.length > 0,
+      source: null,
+      reason: "Operator sign-in required.",
+      userId: null,
+      label: "signed-out",
+    };
   }
-  return { userId, label: user?.email ?? user?.name ?? String(userId) };
+
+  const [user, profile, config] = await Promise.all([
+    ctx.db.get(userId),
+    ctx.db
+      .query("profiles")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .first(),
+    loadConfig(ctx),
+  ]);
+  const telegramId = await resolveTelegramId(ctx, userId, profile);
+  const isOwner = config.ownerUserId === userId;
+  const isEnvAdmin = isTelegramAdmin(telegramId);
+
+  // A configured Telegram allowlist is authoritative: a stored role or owner
+  // grant must never quietly add an administrator the operator did not list.
+  // With no allowlist, the explicit server-side owner bootstrap still works.
+  const isAdmin = isEnvAdmin || (allowlist.length === 0 && isOwner);
+  const source: AdminAccess["source"] = isEnvAdmin
+    ? "env_telegram"
+    : isAdmin && isOwner
+      ? "owner"
+      : null;
+
+  let reason: string | null = null;
+  if (!isAdmin) {
+    reason =
+      allowlist.length > 0
+        ? `This verified Telegram account is not in TELEGRAM_ADMIN_IDS. Current id: ${telegramId ?? "not linked"}.`
+        : "Administrator access is not configured. Set TELEGRAM_ADMIN_IDS on the backend to your Telegram id.";
+  }
+
+  return {
+    signedIn: true,
+    isAdmin,
+    telegramId,
+    allowlistConfigured: allowlist.length > 0,
+    source: isAdmin ? source : null,
+    reason,
+    userId,
+    label:
+      telegramId ? `telegram:${telegramId}` : (user?.email ?? user?.name ?? String(userId)),
+  };
+}
+
+export async function requireAdmin(ctx: MutationCtx | QueryCtx) {
+  const access = await resolveAdminAccess(ctx);
+  if (!access.isAdmin || !access.userId) {
+    throw new Error(access.reason ?? "Operator authorization required.");
+  }
+  return {
+    userId: access.userId,
+    label: access.label,
+    telegramId: access.telegramId,
+    source: access.source,
+  };
 }
 
 export async function audit(

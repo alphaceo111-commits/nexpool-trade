@@ -63,8 +63,24 @@ http.route({
     }
 
     let update: {
-      message?: { text?: string; chat?: { id?: number | string } };
-      edited_message?: { text?: string; chat?: { id?: number | string } };
+      message?: {
+        text?: string;
+        chat?: { id?: number | string; type?: string };
+        from?: {
+          id?: number | string;
+          username?: string;
+          first_name?: string;
+        };
+      };
+      edited_message?: {
+        text?: string;
+        chat?: { id?: number | string; type?: string };
+        from?: {
+          id?: number | string;
+          username?: string;
+          first_name?: string;
+        };
+      };
     };
     try {
       update = await request.json();
@@ -83,10 +99,17 @@ http.route({
 
     const chatId =
       message?.chat?.id !== undefined ? String(message.chat.id) : undefined;
+    // `from.id` is the permanent Telegram user identity. In a group, chat.id is
+    // the group, so falling back to it would attribute a referral to the group.
+    const telegramUserId =
+      message?.from?.id !== undefined ? String(message.from.id) : undefined;
 
     const reply = await ctx.runMutation(internal.bot.handleIncoming, {
       text,
       chatId,
+      telegramUserId,
+      telegramUsername: message?.from?.username,
+      telegramName: message?.from?.first_name,
       source: "telegram",
     });
 

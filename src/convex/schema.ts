@@ -210,13 +210,107 @@ const schema = defineSchema(
       miningExtensionStartedAt: v.optional(v.number()),
       miningExtensionEndsAt: v.optional(v.number()),
       extensionUnlockDay: v.optional(v.string()),
+      // Server-recorded presence. Only real backend events (app bootstrap,
+      // mining heartbeat, verified task, verified ad) move this forward, so
+      // activity reports cannot be inflated by refreshing the UI.
+      lastActiveAt: v.optional(v.number()),
+      // Set only by the Mini App bootstrap, so "Mini App users" is not
+      // inflated by backend task or payout activity.
+      miniAppOpenedAt: v.optional(v.number()),
       createdAt: v.number(),
     })
       .index("by_user", ["userId"])
       .index("by_nexId", ["nexId"])
       .index("by_referralCode", ["referralCode"])
       .index("by_referredBy", ["referredBy"])
-      .index("by_telegramId", ["telegramId"]),
+      .index("by_telegramId", ["telegramId"])
+      .index("by_lastActiveAt", ["lastActiveAt"]),
+
+    // Every Telegram identity the bot has seen, including people who have not
+    // opened the Mini App yet. This is what makes "bot starters" reportable
+    // without inventing a profile or counting a Mini App visit as a bot start.
+    telegramContacts: defineTable({
+      telegramId: v.string(),
+      name: v.optional(v.string()),
+      username: v.optional(v.string()),
+      firstStartedAt: v.number(),
+      lastSeenAt: v.number(),
+    }).index("by_telegramId", ["telegramId"]),
+
+    // Permanent referral attribution. A row is created the moment a Telegram
+    // account starts the bot with an invite code, before that person has a
+    // profile, a balance, or a single task. `inviteeTelegramId` is the
+    // permanent identity; `inviteeProfileId` is filled in when the Mini App
+    // account is created. One row per invited Telegram account, ever.
+    referrals: defineTable({
+      code: v.string(),
+      inviterProfileId: v.id("profiles"),
+      inviterUserId: v.id("users"),
+      inviterNexId: v.string(),
+      inviterTelegramId: v.optional(v.string()),
+      inviteeTelegramId: v.string(),
+      inviteeProfileId: v.optional(v.id("profiles")),
+      inviteeUserId: v.optional(v.id("users")),
+      inviteeName: v.optional(v.string()),
+      inviteeUsername: v.optional(v.string()),
+      inviteePhotoUrl: v.optional(v.string()),
+      status: v.union(
+        v.literal("pending"),
+        v.literal("in_progress"),
+        v.literal("qualified"),
+        v.literal("rejected"),
+      ),
+      verifiedTaskCount: v.number(),
+      requiredTaskCount: v.number(),
+      source: v.union(
+        v.literal("bot_start"),
+        v.literal("mini_app"),
+        v.literal("legacy"),
+        v.literal("admin"),
+      ),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+      qualifiedAt: v.optional(v.number()),
+      rejectedAt: v.optional(v.number()),
+      rejectionReason: v.optional(v.string()),
+      joinNotifiedAt: v.optional(v.number()),
+      progressNotifiedAt: v.optional(v.number()),
+      qualifiedNotifiedAt: v.optional(v.number()),
+      // Snapshot of the speed bonus this referral contributes per hour and the
+      // inviter XP credited when it qualified. The live bonus is still priced
+      // from appConfig so an operator edit applies immediately.
+      bonusNexPerHour: v.optional(v.number()),
+      bonusRecordedAt: v.optional(v.number()),
+      xpAwarded: v.optional(v.number()),
+    })
+      .index("by_inviteeTelegramId", ["inviteeTelegramId"])
+      .index("by_inviter_createdAt", ["inviterProfileId", "createdAt"])
+      .index("by_inviteeProfile", ["inviteeProfileId"])
+      .index("by_status_createdAt", ["status", "createdAt"])
+      .index("by_createdAt", ["createdAt"])
+      .index("by_qualifiedAt", ["qualifiedAt"]),
+
+    // Verification outcome log for rewarded ads. Completed challenges are the
+    // earning source; this log is how failed, rejected and duplicate attempts
+    // are reported without counting them as views.
+    adVerificationEvents: defineTable({
+      userId: v.id("users"),
+      purpose: v.union(v.literal("away"), v.literal("extension")),
+      provider: v.string(),
+      outcome: v.union(
+        v.literal("verified"),
+        v.literal("duplicate"),
+        v.literal("invalid"),
+        v.literal("expired"),
+        v.literal("rejected"),
+        v.literal("unavailable"),
+      ),
+      reason: v.optional(v.string()),
+      createdAt: v.number(),
+    })
+      .index("by_createdAt", ["createdAt"])
+      .index("by_outcome_createdAt", ["outcome", "createdAt"])
+      .index("by_user_createdAt", ["userId", "createdAt"]),
 
     // Confirmed NEX balances. Only the backend writes here.
     balances: defineTable({

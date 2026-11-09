@@ -7,19 +7,9 @@ import {
   internalQuery,
   mutation,
 } from "./_generated/server";
-import {
-  listReferralRows,
-  loadConfig,
-  notifyUser,
-  requireProfile,
-  roundNex,
-} from "./engine";
-import {
-  DEFAULT_TASK_XP,
-  QUALIFIED_REFERRAL_XP,
-  awardXp,
-  claimedLevel,
-} from "./levels";
+import { notifyUser, requireProfile, roundNex } from "./engine";
+import { DEFAULT_TASK_XP, awardXp, claimedLevel } from "./levels";
+import { syncReferralProgress } from "./referralEngine";
 
 /** Stage a task for verification. A click alone never pays out. */
 export const submit = mutation({
@@ -152,6 +142,7 @@ export const grantTaskReward = internalMutation({
     const now = Date.now();
     const reward = roundNex(completion.rewardNex);
 
+    await ctx.db.patch(profile._id, { lastActiveAt: now });
     await ctx.db.patch(completion._id, {
       status: "verified",
       verifiedAt: now,
@@ -197,40 +188,11 @@ export const grantTaskReward = internalMutation({
       `${task.title} confirmed by ${args.verifiedBy}.${reward > 0 ? ` ${reward} NEX credited.` : ""} +${Math.round(task.xpReward ?? DEFAULT_TASK_XP)} XP.${speedNote}`,
     );
 
-    if (profile.referredBy && !profile.referralQualifiedAt) {
-      const config = await loadConfig(ctx);
-      const referrals = await listReferralRows(ctx, profile.referredBy, config);
-      const self = referrals.find((row) => row.profileId === profile._id);
-      const referrer = await ctx.db.get(profile.referredBy);
-      if (self?.qualified) {
-        await ctx.db.patch(profile._id, { referralQualifiedAt: now });
-        if (referrer) {
-          await awardXp(ctx, {
-            userId: referrer.userId,
-            profile: referrer,
-            amountXp: QUALIFIED_REFERRAL_XP,
-            source: "referral",
-            refId: String(profile._id),
-            memo: `Qualified referral · ${profile.displayName}`,
-          });
-          await notifyUser(
-            ctx,
-            referrer,
-            "referral",
-            "Referral qualified",
-            `${profile.displayName} completed ${self.verifiedTasks} verified tasks and now counts toward your withdrawal requirement. +${QUALIFIED_REFERRAL_XP} XP.`,
-          );
-        }
-      } else if (self && referrer) {
-        await notifyUser(
-          ctx,
-          referrer,
-          "referral",
-          "Referral task progress",
-          `${profile.displayName} completed a verified task (${self.verifiedTasks}/${self.requiredTasks}). They add mining speed and withdrawal progress only after qualifying.`,
-        );
-      }
-    }
+    // This is the referral state machine's only trigger. A verified task moves
+    // the invitee Pending -> In Progress -> Qualified and notifies the inviter
+    // once per transition; duplicate task rows cannot count twice.
+    const updatedProfile = (await ctx.db.get(profile._id))!;
+    await syncReferralProgress(ctx, updatedProfile);
 
     return { granted: true, rewardNex: reward, xp: xpAward.xp };
   },

@@ -7,6 +7,7 @@ import {
   getTelegram,
   initTelegram,
   peekReferral,
+  rememberReferral,
   takeReferral,
   telegramStartParam,
 } from "@/lib/telegram";
@@ -29,13 +30,14 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router";
 
-/** The five primary tabs — the only items in the mobile bottom bar. */
+/** The primary tabs shown in the mobile bottom bar. */
 const NAV = [
   { to: "/app", label: "Home", icon: LayoutDashboard, end: true },
   { to: "/app/mining", label: "Mining", icon: Gauge, end: false },
   { to: "/app/tasks", label: "Tasks", icon: ListChecks, end: false },
   { to: "/app/levels", label: "Levels", icon: Trophy, end: false },
   { to: "/app/referrals", label: "Referrals", icon: Users, end: false },
+  { to: "/app/leaderboard", label: "Ranks", icon: Trophy, end: false },
   { to: "/app/wallet", label: "Wallet", icon: Wallet, end: false },
 ];
 
@@ -56,6 +58,7 @@ const TITLES: Record<string, string> = {
   "/app/tasks": "Task centre",
   "/app/levels": "Progression",
   "/app/referrals": "Referral desk",
+  "/app/leaderboard": "Leaderboard",
   "/app/wallet": "Wallet",
   "/app/deposit": "Deposit",
   "/app/withdraw": "Withdraw",
@@ -221,6 +224,9 @@ export default function AppShell() {
     const startParam = telegramStartParam();
     const urlRef = new URLSearchParams(window.location.search).get("ref");
     const code = startParam || urlRef || takeReferral() || peekReferral();
+    // Keep the code across a slow Telegram handshake or an auth retry; it is
+    // consumed by the backend's idempotent referral record, not by the UI.
+    if (code) rememberReferral(code);
     await ensure({
       referralCode: code ?? undefined,
     });
@@ -418,7 +424,7 @@ export default function AppShell() {
         aria-label="Main navigation"
         className="fixed inset-x-0 bottom-0 z-40 border-t border-border/80 nav-blur bottom-nav lg:hidden"
       >
-        <div className="mx-auto grid max-w-lg grid-cols-6">
+        <div className="mx-auto grid max-w-lg grid-cols-7">
           {NAV.map((item) => (
             <NavLink
               key={item.to}

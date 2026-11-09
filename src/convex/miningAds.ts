@@ -309,19 +309,46 @@ export const confirmFromClient = mutation({
     if (String(challenge._id) !== args.ymid) {
       throw new Error("The provider reference does not match this challenge.");
     }
+    const logOutcome = async (
+      outcome:
+        | "verified"
+        | "duplicate"
+        | "invalid"
+        | "expired"
+        | "rejected"
+        | "unavailable",
+      reason?: string,
+    ) => {
+      await ctx.db.insert("adVerificationEvents", {
+        userId: profile.userId,
+        purpose: challenge.purpose,
+        provider: PROVIDER,
+        outcome,
+        reason,
+        createdAt: Date.now(),
+      });
+    };
+
     if (challenge.status === "completed") {
+      await logOutcome("duplicate", "Challenge was already completed.");
       return { status: "already" as const };
     }
     if (challenge.status !== "pending") {
+      await logOutcome("expired", "Challenge was no longer pending.");
       throw new Error("This ad challenge has expired. Request a new ad.");
     }
     const now = Date.now();
     if (challenge.expiresAt <= now) {
       await ctx.db.patch(challenge._id, { status: "expired" });
+      await logOutcome("expired", "Challenge expired before confirmation.");
       throw new Error("This ad challenge has expired. Request a new ad.");
     }
 
     if (args.rewardEventType !== "valued") {
+      await logOutcome(
+        "rejected",
+        `Provider reward_event_type=${args.rewardEventType}.`,
+      );
       return {
         status: "rejected" as const,
         message:
@@ -329,6 +356,7 @@ export const confirmFromClient = mutation({
       };
     }
     if (args.eventType === "click") {
+      await logOutcome("rejected", "Provider reported a click, not a view.");
       return {
         status: "rejected" as const,
         message:
@@ -336,6 +364,7 @@ export const confirmFromClient = mutation({
       };
     }
     if (challenge.postbackRewardEventType === "non_valued") {
+      await logOutcome("rejected", "Provider postback marked non_valued.");
       return {
         status: "rejected" as const,
         message:
@@ -353,8 +382,10 @@ export const confirmFromClient = mutation({
 
     const result = await applyAdCompletion(ctx, profile, challenge, now);
     if (!result.recorded) {
+      await logOutcome("duplicate", "Completion was already applied.");
       return { status: "already" as const };
     }
+    await logOutcome("verified", result.granted ? "Entitlement granted." : "Progress recorded.");
     return {
       status: result.granted ? ("granted" as const) : ("recorded" as const),
       granted: result.granted,

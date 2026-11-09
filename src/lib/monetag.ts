@@ -133,14 +133,6 @@ export async function showVerifiedRewardedAd(options: {
   ymid: string;
   requestVar: string;
 }): Promise<VerifiedRewardedAdResult> {
-  const effectiveType = options.type ?? "end";
-
-  try {
-    const result = await runtime({
-      type: effectiveType,
-      ymid: options.ymid,
-      requestVar: options.requestVar,
-    });
   if (typeof window === "undefined") {
     return {
       ok: false,
@@ -162,7 +154,7 @@ export async function showVerifiedRewardedAd(options: {
 
   try {
     const result = await runtime({
-      type: effectiveType,
+      type: "end",
       ymid: options.ymid,
       requestVar: options.requestVar,
     });
@@ -188,7 +180,7 @@ export async function showVerifiedRewardedAd(options: {
       };
     }
     return { ok: true, result };
-  } finally {
+  } catch (error) {
     return { ok: false, reason: errorMessage(error) };
   }
 }

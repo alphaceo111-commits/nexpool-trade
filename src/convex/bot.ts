@@ -19,6 +19,7 @@ import {
   treasuryAddress,
 } from "./payments";
 import { telegramWebhookSecret } from "./telegramWebhook";
+import { attachReferral, syncReferralProgress } from "./referralEngine";
 
 const BOT_KEY = "default";
 const UNITS = { BTC: "BTC", LTC: "LTC", KAS: "KAS", ETC: "ETC" } as const;
@@ -576,7 +577,7 @@ function buildUserReply(
           "",
           "Your NEXPOOL account is created inside the mini app from your verified Telegram identity. No balance or reward is invented here.",
           inviteCode
-            ? `Invite code ${inviteCode} is attached to this start — open the app to bind it to your new account.`
+            ? `Invite code ${inviteCode} was saved against your Telegram ID. Open the app to create your account — you will already be in your inviter's Referral Desk as Pending.`
             : "",
         ]
           .filter(Boolean)
@@ -619,7 +620,7 @@ function buildUserReply(
         extra.push(
           account.hasReferrer
             ? `This account already has a referrer, so invite code ${inviteCode} was not applied.`
-            : `Invite code ${inviteCode} is attached to this start — open the app to bind it to your account.`,
+            : `Invite code ${inviteCode} is saved against your Telegram ID — open the app to finish linking it to your account.`,
         );
       }
       break;
@@ -1442,26 +1443,80 @@ export const handleIncoming = internalMutation({
   args: {
     text: v.string(),
     chatId: v.optional(v.string()),
+    // `from.id` is the real Telegram user identity. `chat.id` is only the same
+    // value in a private chat, so it must never be the referral identity.
+    telegramUserId: v.optional(v.string()),
+    telegramUsername: v.optional(v.string()),
+    telegramName: v.optional(v.string()),
     source: v.optional(v.union(v.literal("telegram"), v.literal("console"))),
   },
   handler: async (ctx, args) => {
     let reply: string;
     let button: { label: string; path: string } | undefined;
     let referralCode: string | undefined;
+    let referralAttached = false;
     // Telegram chats only ever reach user-facing replies. Desk commands are
     // answered by the operator console (runConsoleCommand), never by the bot,
     // so pool and revenue internals are not exposed to arbitrary chats.
     if (args.chatId) {
+      const telegramUserId = args.telegramUserId?.trim();
+      if (telegramUserId) {
+        const now = Date.now();
+        const contact = await ctx.db
+          .query("telegramContacts")
+          .withIndex("by_telegramId", (q) => q.eq("telegramId", telegramUserId))
+          .first();
+        if (contact) {
+          await ctx.db.patch(contact._id, {
+            lastSeenAt: now,
+            name: args.telegramName?.slice(0, 40) ?? contact.name,
+            username: args.telegramUsername ?? contact.username,
+          });
+        } else {
+          await ctx.db.insert("telegramContacts", {
+            telegramId: telegramUserId,
+            name: args.telegramName?.slice(0, 40),
+            username: args.telegramUsername,
+            firstStartedAt: now,
+            lastSeenAt: now,
+          });
+        }
+      }
+
       // `https://t.me/<bot>?start=CODE` delivers a /start payload. Only a code
       // that belongs to a real profile is forwarded to the mini app button.
       const startPayload = /^\/start(?:@\w+)?\s+(\S+)$/i.exec(args.text.trim());
       const candidate = startPayload?.[1]?.trim().toUpperCase();
-      if (candidate && /^[A-Z2-9]{6,12}$/.test(candidate)) {
+      if (
+        candidate &&
+        /^[A-Z2-9]{6,12}$/.test(candidate) &&
+        telegramUserId
+      ) {
         const inviter = await ctx.db
           .query("profiles")
           .withIndex("by_referralCode", (q) => q.eq("referralCode", candidate))
           .first();
-        if (inviter) referralCode = candidate;
+        const inviteeProfile = await ctx.db
+          .query("profiles")
+          .withIndex("by_telegramId", (q) => q.eq("telegramId", telegramUserId))
+          .first();
+        if (inviter) {
+          referralCode = candidate;
+          // The record is written here, at /start, before the invitee ever
+          // opens the Mini App, mines, or completes a task.
+          const attached = await attachReferral(ctx, {
+            code: candidate,
+            inviteeTelegramId: telegramUserId,
+            inviteeProfile,
+            inviteeName: args.telegramName,
+            inviteeUsername: args.telegramUsername,
+            source: "bot_start",
+          });
+          referralAttached = attached.attached;
+          if (attached.attached && inviteeProfile) {
+            await syncReferralProgress(ctx, inviteeProfile);
+          }
+        }
       }
 
       const user = await userSnapshot(ctx, args.chatId);
@@ -1493,7 +1548,7 @@ export const handleIncoming = internalMutation({
       source: args.source ?? "telegram",
       chatId: args.chatId,
     });
-    return { text: reply, button, referralCode };
+    return { text: reply, button, referralCode, referralAttached };
   },
 });
 
