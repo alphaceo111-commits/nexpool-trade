@@ -114,6 +114,58 @@ export default function Withdraw() {
       />
 
       <Panel
+        eyebrow="Payout artwork"
+        title="Milestones, made visible"
+        action={<StatusPill tone="gold">Illustrative</StatusPill>}
+        bodyClassName="p-0"
+      >
+        <div className="grid grid-cols-2 gap-px bg-border/70">
+          {[
+            {
+              src: "/assets/nexpool-payout-success.webp",
+              alt: "NEXPOOL withdrawal success card artwork",
+              label: "Withdrawal success",
+              note: "Sample amount",
+              position: "object-center",
+            },
+            {
+              src: "/assets/nexpool-payout-milestone.webp",
+              alt: "NEXPOOL withdrawal milestone announcement artwork",
+              label: "Milestone announcement",
+              note: "Share card",
+              position: "object-[50%_42%]",
+            },
+          ].map((card) => (
+            <figure key={card.label} className="relative overflow-hidden bg-card">
+              <img
+                src={card.src}
+                alt={card.alt}
+                loading="lazy"
+                decoding="async"
+                className={cn(
+                  "aspect-[4/5] w-full object-cover transition-transform duration-500 hover:scale-[1.03]",
+                  card.position,
+                )}
+              />
+              <figcaption className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/35 to-transparent p-2.5 pt-8">
+                <p className="font-mono text-[8.5px] uppercase tracking-[0.14em] text-white/90">
+                  {card.label}
+                </p>
+                <p className="mt-0.5 font-mono text-[7.5px] uppercase tracking-[0.12em] text-white/45">
+                  {card.note}
+                </p>
+              </figcaption>
+            </figure>
+          ))}
+        </div>
+        <p className="px-3 py-2.5 text-[9.5px] leading-relaxed text-muted-foreground">
+          Official NEXPOOL payout artwork. Live amounts, statuses and TON
+          transaction hashes always come from the payout records below — never
+          from a card.
+        </p>
+      </Panel>
+
+      <Panel
         eyebrow="Eligibility"
         title={
           withdrawal.eligible
