@@ -1,4 +1,5 @@
 import { BrandMark } from "@/components/Brand";
+import { MiningPopupsProvider } from "@/components/app/MiningPopups";
 import { LoadingBlock, StatusPill, formatNex } from "@/components/app/parts";
 import { Button } from "@/components/ui/button";
 import { api } from "@/convex/_generated/api";
@@ -352,8 +353,9 @@ export default function AppShell() {
   const title = TITLES[location.pathname] ?? "NEXPOOL";
 
   return (
-    <div className="min-h-[100dvh] bg-background text-foreground">
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-[248px] border-r border-sidebar-border lg:block">
+    <MiningPopupsProvider>
+      <div className="min-h-[100dvh] bg-background text-foreground">
+        <aside className="fixed inset-y-0 left-0 z-40 hidden w-[248px] border-r border-sidebar-border lg:block">
         <SidebarBody />
       </aside>
 
@@ -420,38 +422,39 @@ export default function AppShell() {
         </main>
       </div>
 
-      <nav
-        aria-label="Main navigation"
-        className="fixed inset-x-0 bottom-0 z-40 border-t border-border/80 nav-blur bottom-nav lg:hidden"
-      >
-        <div className="mx-auto grid max-w-lg grid-cols-7">
-          {NAV.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className={({ isActive }) =>
-                cn(
-                  "relative flex flex-col items-center gap-1 py-2 transition-colors",
-                  isActive ? "text-primary" : "text-muted-foreground",
-                )
-              }
-            >
-              {({ isActive }) => (
-                <>
-                  {isActive ? (
-                    <span className="absolute top-0 h-[2px] w-6 rounded-full bg-primary" />
-                  ) : null}
-                  <item.icon className="size-[18px]" />
-                  <span className="font-mono text-[8.5px] uppercase tracking-[0.08em]">
-                    {item.label}
-                  </span>
-                </>
-              )}
-            </NavLink>
-          ))}
-        </div>
-      </nav>
-    </div>
+        <nav
+          aria-label="Main navigation"
+          className="fixed inset-x-0 bottom-0 z-40 border-t border-border/80 nav-blur bottom-nav lg:hidden"
+        >
+          <div className="mx-auto grid max-w-lg grid-cols-7">
+            {NAV.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.end}
+                className={({ isActive }) =>
+                  cn(
+                    "relative flex flex-col items-center gap-1 py-2 transition-colors",
+                    isActive ? "text-primary" : "text-muted-foreground",
+                  )
+                }
+              >
+                {({ isActive }) => (
+                  <>
+                    {isActive ? (
+                      <span className="absolute top-0 h-[2px] w-6 rounded-full bg-primary" />
+                    ) : null}
+                    <item.icon className="size-[18px]" />
+                    <span className="font-mono text-[8.5px] uppercase tracking-[0.08em]">
+                      {item.label}
+                    </span>
+                  </>
+                )}
+              </NavLink>
+            ))}
+          </div>
+        </nav>
+      </div>
+    </MiningPopupsProvider>
   );
 }

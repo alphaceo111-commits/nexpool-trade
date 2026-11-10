@@ -210,6 +210,11 @@ const schema = defineSchema(
       miningExtensionStartedAt: v.optional(v.number()),
       miningExtensionEndsAt: v.optional(v.number()),
       extensionUnlockDay: v.optional(v.string()),
+      // Popup delivery markers. The first mining-start popup is one-time per
+      // account; the cap popup is surfaced at most once per UTC day. These
+      // record presentation, never entitlement or ad progress.
+      miningStartPopupClaimedAt: v.optional(v.number()),
+      miningCapPopupClaimedDay: v.optional(v.string()),
       // Server-recorded presence. Only real backend events (app bootstrap,
       // mining heartbeat, verified task, verified ad) move this forward, so
       // activity reports cannot be inflated by refreshing the UI.

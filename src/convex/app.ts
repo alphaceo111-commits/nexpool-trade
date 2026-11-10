@@ -6,6 +6,7 @@ import {
   CONFIG_KEY,
   MINING_ECONOMY_VERSION,
   computeSpeed,
+  dayKey,
   ensureAccount,
   heartbeatMiningSession,
   loadConfig,
@@ -437,6 +438,67 @@ export const snapshot = query({
         ]),
       ),
     };
+  },
+});
+
+/**
+ * Claims a one-time popup presentation slot. The client only opens the dialog
+ * when this mutation returns show=true, so a refresh, remount or second device
+ * cannot replay the same automatic popup. Manual re-opening from Mining does
+ * not call this and never grants anything by itself.
+ */
+export const claimMiningPopup = mutation({
+  args: {
+    kind: v.union(v.literal("started"), v.literal("cap")),
+  },
+  handler: async (ctx, args) => {
+    const { profile, balance } = await requireProfile(ctx);
+    const config = await loadConfig(ctx);
+    const speed = await computeSpeed(ctx, profile, config);
+    const now = Date.now();
+    const mining = await readMiningSnapshot(
+      ctx,
+      profile,
+      balance,
+      config,
+      speed,
+      now,
+    );
+
+    if (mining.status === "restricted") {
+      return { show: false as const, reason: "restricted" as const };
+    }
+
+    if (args.kind === "started") {
+      if (profile.miningStartPopupClaimedAt) {
+        return { show: false as const, reason: "already_claimed" as const };
+      }
+      // The popup is only valid while the backend reports a real active
+      // mining session. A paused, capped or restricted account must not claim
+      // a "mining started" presentation.
+      if (
+        mining.status !== "active" ||
+        !mining.sessionActive ||
+        mining.remainingTodayNex <= 0
+      ) {
+        return { show: false as const, reason: "not_started" as const };
+      }
+      await ctx.db.patch(profile._id, { miningStartPopupClaimedAt: now });
+      return { show: true as const, claimedAt: now };
+    }
+
+    if (mining.status !== "limit" || mining.remainingTodayNex > 0) {
+      return { show: false as const, reason: "cap_not_reached" as const };
+    }
+    if (mining.extensionActive || mining.ads.extension.unlockedToday) {
+      return { show: false as const, reason: "extension_already_unlocked" as const };
+    }
+    const today = dayKey(now);
+    if (profile.miningCapPopupClaimedDay === today) {
+      return { show: false as const, reason: "already_claimed" as const };
+    }
+    await ctx.db.patch(profile._id, { miningCapPopupClaimedDay: today });
+    return { show: true as const, claimedAt: now, day: today };
   },
 });
 

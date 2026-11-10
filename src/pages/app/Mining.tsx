@@ -1,4 +1,6 @@
 import { api } from "@/convex/_generated/api";
+import { useMiningPopups } from "@/components/app/mining-popups-context";
+import { useVerifiedMiningAd } from "@/hooks/use-verified-mining-ad";
 import { useMutation, useQuery } from "convex/react";
 import { Link } from "react-router";
 import { toast } from "sonner";
@@ -10,6 +12,7 @@ import {
   Clock,
   Gauge,
   History,
+  Info,
   Layers,
   Lock,
   Megaphone,
@@ -36,7 +39,6 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
-import { showVerifiedRewardedAd } from "@/lib/monetag";
 
 function countdown(ms: number) {
   const total = Math.max(0, Math.floor(ms / 1000));
@@ -50,11 +52,12 @@ export default function Mining() {
   const snapshot = useQuery(api.app.snapshot);
   const settle = useMutation(api.app.settleMiningNow);
   const startMining = useMutation(api.app.startMining);
-  const requestMiningAd = useMutation(api.miningAds.requestAd);
-  const confirmMiningAd = useMutation(api.miningAds.confirmFromClient);
+  const { openMiningPopup } = useMiningPopups();
+  const { busy: adBusy, watchAd } = useVerifiedMiningAd(
+    snapshot?.config.extensionHours ?? 5,
+  );
   const tick = useTick(1000);
   const [settling, setSettling] = useState(false);
-  const [adBusy, setAdBusy] = useState<"away" | "extension" | null>(null);
   const [adNotice, setAdNotice] = useState<string | null>(null);
 
   useEffect(() => {
@@ -93,62 +96,9 @@ export default function Mining() {
   );
 
   const watchAds = async (purpose: "away" | "extension") => {
-    if (adBusy) return;
-    setAdBusy(purpose);
     setAdNotice(null);
-    try {
-      // The server issues the challenge and unique Monetag ymid first. The SDK
-      // result is sent back for the backend to validate and consume exactly once.
-      const challenge = await requestMiningAd({ purpose });
-      const ad = await showVerifiedRewardedAd({
-        ymid: challenge.ymid,
-        requestVar: `mining_${purpose}`,
-      });
-      if (!ad.ok) {
-        toast.error(ad.reason);
-        return;
-      }
-
-      const confirmation = await confirmMiningAd({
-        challengeId: challenge.challengeId,
-        ymid: challenge.ymid,
-        rewardEventType: ad.result.reward_event_type ?? "valued",
-        eventType: ad.result.event_type,
-        estimatedPriceUsd: ad.result.estimated_price,
-      });
-      if (confirmation.status === "rejected") {
-        toast.error(confirmation.message);
-        setAdNotice(confirmation.message);
-        return;
-      }
-      if (confirmation.status === "already") {
-        toast.info("This Monetag view was already counted.");
-        return;
-      }
-      if (confirmation.status === "granted") {
-        toast.success(
-          purpose === "away"
-            ? "Away mining unlocked."
-            : `${config.extensionHours}-hour extension unlocked.`,
-        );
-      } else {
-        toast.success("Verified Monetag view counted.");
-      }
-      setAdNotice(
-        `Monetag confirmed a completed rewarded view. The ${purpose === "away" ? "away-mining" : "extension"} progress updates automatically on this screen.`,
-      );
-      // The challenge ID is useful in development logs, but no client-side
-      // value is ever trusted for the reward decision.
-      if (import.meta.env.DEV) console.debug("monetag challenge", challenge.challengeId);
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "The verified ad could not be started.",
-      );
-    } finally {
-      setAdBusy(null);
-    }
+    const result = await watchAd(purpose);
+    setAdNotice(result.message);
   };
 
   const settleNow = async () => {
@@ -419,6 +369,7 @@ export default function Mining() {
             busy={adBusy === "away"}
             disabled={mining.ads.away.active}
             onWatch={() => void watchAds("away")}
+            onOpenDetails={() => openMiningPopup("away")}
           />
           <AdUnlockCard
             icon={Megaphone}
@@ -443,6 +394,7 @@ export default function Mining() {
               mining.ads.extension.active || !mining.ads.extension.eligible
             }
             onWatch={() => void watchAds("extension")}
+            onOpenDetails={() => openMiningPopup("extension")}
           />
         </div>
       </div>
@@ -689,6 +641,7 @@ function AdUnlockCard({
   busy,
   disabled,
   onWatch,
+  onOpenDetails,
 }: {
   icon: typeof Gauge;
   eyebrow: string;
@@ -702,6 +655,7 @@ function AdUnlockCard({
   busy: boolean;
   disabled: boolean;
   onWatch: () => void;
+  onOpenDetails: () => void;
 }) {
   return (
     <Panel eyebrow={eyebrow} title={title}>
@@ -743,6 +697,13 @@ function AdUnlockCard({
             ? "Permission active"
             : `Watch Monetag ad · ${Math.min(completed + 1, required)}/${required}`}
       </Button>
+      <button
+        type="button"
+        onClick={onOpenDetails}
+        className="mt-2 flex w-full items-center justify-center gap-1 font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <Info className="size-3" /> How this unlock works
+      </button>
     </Panel>
   );
 }
