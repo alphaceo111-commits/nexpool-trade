@@ -80,6 +80,33 @@ export const attachIdentity = internalMutation({
       );
     }
 
+    // An anonymous browser session that later opens inside Telegram should keep
+    // its NEX ID. Attach the verified Telegram auth account to the current
+    // user before the client switches sessions; Convex Auth then resolves the
+    // same user instead of creating a second NEXPOOL account.
+    const linkedAccount = await ctx.db
+      .query("authAccounts")
+      .withIndex("providerAndAccountId", (q) =>
+        q.eq("provider", "telegram").eq("providerAccountId", args.telegramId),
+      )
+      .first();
+    if (linkedAccount && linkedAccount.userId !== profile.userId) {
+      throw new Error(
+        "This Telegram account is already attached to another NEXPOOL user.",
+      );
+    }
+    if (!linkedAccount) {
+      await ctx.db.insert("authAccounts", {
+        userId: profile.userId,
+        provider: "telegram",
+        providerAccountId: args.telegramId,
+      });
+    }
+    const authUser = await ctx.db.get(profile.userId);
+    if (authUser?.isAnonymous) {
+      await ctx.db.patch(profile.userId, { isAnonymous: false });
+    }
+
     const displayName =
       [args.firstName, args.lastName].filter(Boolean).join(" ").trim() ||
       profile.displayName;

@@ -42,10 +42,13 @@ export function TelegramSessionGate({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (isLoading) return;
     const initData = getTelegram()?.initData ?? "";
-    // Do not silently create an anonymous account when this page is running
-    // inside Telegram but the webview did not provide signed initData. That is
-    // a launch/configuration problem the operator must see and fix.
-    if (telegramPresent && !initData && !isAuthenticated) return;
+    // Do not silently keep or create an anonymous account when this page is
+    // running inside Telegram but the webview did not provide signed initData.
+    // A real Telegram-auth session without initData can still use the app;
+    // an anonymous one must stop here so the linking failure is visible.
+    if (telegramPresent && !initData) {
+      if (!isAuthenticated || !user || user.isAnonymous) return;
+    }
     if (isAuthenticated) {
       if (user === undefined) return;
       // An anonymous preview session that is now running inside Telegram is
@@ -62,28 +65,35 @@ export function TelegramSessionGate({ children }: { children: ReactNode }) {
     setError(null);
     setStep(initData ? 1 : 0);
     const timer = window.setTimeout(() => setStep(2), 700);
+
+    const linkWithRetry = async () => {
+      // This action writes the verified Telegram profile onto the current
+      // NEXPOOL account and attaches the Telegram auth account. It is retried
+      // while a freshly created session propagates.
+      let lastReason =
+        "The verified Telegram identity could not be attached to this account.";
+      for (let attemptIndex = 0; attemptIndex < 6; attemptIndex += 1) {
+        try {
+          const result = await linkTelegram({ initData });
+          if (result.linked) return;
+          lastReason = result.reason ?? lastReason;
+        } catch (cause) {
+          lastReason = cause instanceof Error ? cause.message : lastReason;
+        }
+        await new Promise((resolve) =>
+          window.setTimeout(resolve, 400 * (attemptIndex + 1)),
+        );
+      }
+      throw new Error(`Telegram account linking failed: ${lastReason}`);
+    };
+
     const flow = initData
-      ? signIn("telegram", { initData }).then(async () => {
-          // The auth provider creates the user; this action writes the verified
-          // Telegram profile (name, @handle, avatar, chat id) onto the NEXPOOL
-          // account. Retried while the fresh session propagates.
-          let lastReason =
-            "The verified Telegram identity could not be attached to this account.";
-          for (let attemptIndex = 0; attemptIndex < 6; attemptIndex += 1) {
-            try {
-              const result = await linkTelegram({ initData });
-              if (result.linked) return;
-              lastReason = result.reason ?? lastReason;
-            } catch (cause) {
-              lastReason =
-                cause instanceof Error ? cause.message : lastReason;
-            }
-            await new Promise((resolve) =>
-              window.setTimeout(resolve, 400 * (attemptIndex + 1)),
-            );
-          }
-          throw new Error(`Telegram account linking failed: ${lastReason}`);
-        })
+      ? isAuthenticated && user?.isAnonymous
+        ? // Attach the verified Telegram auth account to the current anonymous
+          // user. Do not sign in first: that would create a new NEX ID and
+          // orphan this account. The linked account is used on future sign-ins.
+          linkWithRetry()
+        : signIn("telegram", { initData }).then(linkWithRetry)
       : signIn("anonymous");
 
     flow
@@ -99,7 +109,13 @@ export function TelegramSessionGate({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(timer);
   }, [isLoading, isAuthenticated, user, attempt, signIn, linkTelegram, telegramPresent]);
 
-  if (!isLoading && telegramPresent && !isAuthenticated && !getTelegram()?.initData) {
+  const missingTelegramSession =
+    !isLoading && telegramPresent && !getTelegram()?.initData;
+
+  if (
+    missingTelegramSession &&
+    (!isAuthenticated || user?.isAnonymous)
+  ) {
     return (
       <SessionScreen
         eyebrow="AUTH · TELEGRAM"

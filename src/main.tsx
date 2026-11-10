@@ -1,3 +1,4 @@
+import "@/lib/browser-polyfills";
 import '@vly-ai/integrations';
 import { Toaster } from "@/components/ui/sonner";
 import { TelegramSessionGate } from "@/components/TelegramSessionGate";

@@ -302,6 +302,7 @@ export const snapshot = query({
         referralLink: `https://t.me/${botUsername}?start=${profile.referralCode}`,
         telegramLinked: Boolean(profile.telegramId),
         telegramId: profile.telegramId,
+        isAnonymous: Boolean(user?.isAnonymous),
         walletAddress: profile.walletAddress,
         walletNetwork: profile.walletNetwork,
         walletApp: profile.walletApp,

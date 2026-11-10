@@ -96,6 +96,7 @@ export default function Mining() {
   );
 
   const watchAds = async (purpose: "away" | "extension") => {
+    if (adBusy) return;
     setAdNotice(null);
     const result = await watchAd(purpose);
     setAdNotice(result.message);

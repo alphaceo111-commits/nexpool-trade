@@ -1,6 +1,6 @@
 import { api } from "@/convex/_generated/api";
 import type { FunctionReturnType } from "convex/server";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
@@ -37,6 +37,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import { getTelegram } from "@/lib/telegram";
 import { cn } from "@/lib/utils";
 
 const PREFERENCES = [
@@ -70,7 +71,10 @@ export default function Profile() {
 function ProfileView({ snapshot }: { snapshot: Snapshot }) {
   const updatePreferences = useMutation(api.app.updatePreferences);
   const reportProblem = useMutation(api.app.reportProblem);
+  const linkTelegram = useAction(api.telegram.linkTelegram);
   const { account, balance, config } = snapshot;
+  const telegramInitData = getTelegram()?.initData ?? "";
+  const [linkingTelegram, setLinkingTelegram] = useState(false);
 
   const [displayName, setDisplayName] = useState(account.displayName);
   const [savingName, setSavingName] = useState(false);
@@ -221,6 +225,57 @@ function ProfileView({ snapshot }: { snapshot: Snapshot }) {
           </div>
         </div>
       </Panel>
+
+      {!account.telegramLinked ? (
+        <div className="flex items-start gap-2.5 rounded-md border border-warn/40 bg-warn/[0.05] px-3.5 py-3">
+          <Send className="mt-0.5 size-4 shrink-0 text-warn" />
+          <div className="min-w-0 flex-1">
+            <p className="text-[12px] font-medium">Telegram ID not linked</p>
+            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+              {account.isAnonymous
+                ? `${account.nexId} is currently an anonymous session. Open NEXPOOL from @NEXPOOLBOT inside Telegram so the backend can verify signed initData and attach the Telegram ID without replacing this NEX ID. A browser tab cannot provide that signature.`
+                : "Your session is signed in, but the Telegram profile link did not complete. Retry the verified link below."}
+            </p>
+            {telegramInitData ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={linkingTelegram}
+                className="mt-2 gap-1.5 font-mono text-[9px] uppercase tracking-[0.1em]"
+                onClick={() => {
+                  setLinkingTelegram(true);
+                  linkTelegram({ initData: telegramInitData })
+                    .then((result) => {
+                      if (!result.linked) {
+                        throw new Error(
+                          result.reason ??
+                            "Telegram identity could not be linked.",
+                        );
+                      }
+                      toast.success("Telegram identity linked");
+                    })
+                    .catch((error: unknown) => {
+                      toast.error(
+                        error instanceof Error
+                          ? error.message
+                          : "Telegram identity could not be linked.",
+                      );
+                    })
+                    .finally(() => setLinkingTelegram(false));
+                }}
+              >
+                {linkingTelegram ? <Spinner /> : <Send className="size-3.5" />}
+                {linkingTelegram ? "Linking" : "Link Telegram ID"}
+              </Button>
+            ) : (
+              <p className="mt-2 font-mono text-[9px] uppercase tracking-[0.1em] text-warn">
+                Open inside Telegram to provide signed initData
+              </p>
+            )}
+          </div>
+        </div>
+      ) : null}
 
       {account.restricted ? (
         <div className="rounded-md border border-down/40 bg-down/[0.06] px-3.5 py-3">
