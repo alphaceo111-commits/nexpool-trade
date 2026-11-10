@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   Info,
   Lock,
+  Maximize2,
   ShieldCheck,
   Wallet,
 } from "lucide-react";
@@ -23,8 +24,38 @@ import {
   StatusPill,
 } from "@/components/app/parts";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+
+const PAYOUT_ARTWORK = [
+  {
+    id: "success",
+    src: "/assets/nexpool-payout-success.webp",
+    alt: "NEXPOOL withdrawal success card showing a sample 2.00000000 NEX payout",
+    title: "Withdrawal success",
+    note: "Sample amount · illustrative",
+    description:
+      "A completed-payout card using NEXPOOL's sample 2.00000000 NEX value.",
+  },
+  {
+    id: "milestone",
+    src: "/assets/nexpool-payout-milestone.webp",
+    alt: "NEXPOOL withdrawal milestone announcement artwork",
+    title: "Milestone announcement",
+    note: "Announcement card · illustrative",
+    description:
+      "The milestone card used to celebrate a completed withdrawal.",
+  },
+] as const;
+
+type ArtworkId = (typeof PAYOUT_ARTWORK)[number]["id"];
 
 export default function Withdraw() {
   const snapshot = useQuery(api.app.snapshot);
@@ -32,6 +63,7 @@ export default function Withdraw() {
   const [amountInput, setAmountInput] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [artworkId, setArtworkId] = useState<ArtworkId | null>(null);
 
   if (!snapshot) {
     return (
@@ -47,6 +79,7 @@ export default function Withdraw() {
   }
 
   const { withdrawal, config, account, balance } = snapshot;
+  const artwork = PAYOUT_ARTWORK.find((item) => item.id === artworkId) ?? null;
   const pending = withdrawal.history.find(
     (row) => row.status === "requested" || row.status === "reviewing",
   );
@@ -120,38 +153,30 @@ export default function Withdraw() {
         bodyClassName="p-0"
       >
         <div className="grid grid-cols-2 gap-px bg-border/70">
-          {[
-            {
-              src: "/assets/nexpool-payout-success.webp",
-              alt: "NEXPOOL withdrawal success card artwork",
-              label: "Withdrawal success",
-              note: "Sample amount",
-              position: "object-center",
-            },
-            {
-              src: "/assets/nexpool-payout-milestone.webp",
-              alt: "NEXPOOL withdrawal milestone announcement artwork",
-              label: "Milestone announcement",
-              note: "Share card",
-              position: "object-[50%_42%]",
-            },
-          ].map((card) => (
-            <figure key={card.label} className="relative overflow-hidden bg-card">
-              <img
-                src={card.src}
-                alt={card.alt}
-                loading="lazy"
-                decoding="async"
-                className={cn(
-                  "aspect-[4/5] w-full object-cover transition-transform duration-500 hover:scale-[1.03]",
-                  card.position,
-                )}
-              />
-              <figcaption className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/35 to-transparent p-2.5 pt-8">
-                <p className="font-mono text-[8.5px] uppercase tracking-[0.14em] text-white/90">
-                  {card.label}
+          {PAYOUT_ARTWORK.map((card) => (
+            <figure key={card.id} className="group flex flex-col bg-card">
+              <button
+                type="button"
+                onClick={() => setArtworkId(card.id)}
+                className="relative block overflow-hidden bg-black/40 text-left focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none focus-visible:ring-inset"
+                aria-label={`View ${card.title} artwork full size`}
+              >
+                <img
+                  src={card.src}
+                  alt={card.alt}
+                  loading="lazy"
+                  decoding="async"
+                  className="aspect-[4/5] w-full object-contain transition-transform duration-500 group-hover:scale-[1.02]"
+                />
+                <span className="absolute top-2 right-2 flex size-6 items-center justify-center rounded-sm border border-white/15 bg-black/45 text-white/80 backdrop-blur-sm transition-colors group-hover:border-white/30 group-hover:text-white">
+                  <Maximize2 className="size-3" />
+                </span>
+              </button>
+              <figcaption className="flex-1 border-t border-border/60 px-2.5 py-2">
+                <p className="font-mono text-[8.5px] uppercase tracking-[0.14em] text-foreground">
+                  {card.title}
                 </p>
-                <p className="mt-0.5 font-mono text-[7.5px] uppercase tracking-[0.12em] text-white/45">
+                <p className="mt-0.5 font-mono text-[7.5px] uppercase tracking-[0.12em] text-muted-foreground">
                   {card.note}
                 </p>
               </figcaption>
@@ -449,6 +474,41 @@ export default function Withdraw() {
           </Panel>
         </div>
       </div>
+
+      <Dialog
+        open={Boolean(artwork)}
+        onOpenChange={(open) => {
+          if (!open) setArtworkId(null);
+        }}
+      >
+        <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-lg">
+          {artwork ? (
+            <>
+              <DialogHeader>
+                <p className="label-xs">Payout artwork · illustrative</p>
+                <DialogTitle className="pr-4 text-base leading-snug">
+                  {artwork.title}
+                </DialogTitle>
+                <DialogDescription className="text-[11.5px] leading-relaxed">
+                  {artwork.description}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="overflow-hidden rounded-sm border border-border/70 bg-black">
+                <img
+                  src={artwork.src}
+                  alt={artwork.alt}
+                  className="max-h-[62dvh] w-full object-contain"
+                />
+              </div>
+              <p className="text-[10.5px] leading-relaxed text-muted-foreground">
+                This is NEXPOOL artwork, not a receipt. Amounts shown in the
+                artwork are illustrative; your live payout amount, status and TON
+                transaction hash are always read from the payout records.
+              </p>
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
       <Panel
         eyebrow="History"
