@@ -9,17 +9,21 @@ import {
   loadConfig,
   notifyUser,
   requireProfile,
+  roundNex,
 } from "./engine";
 
 /**
  * A challenge is only permission to show one ad. It never pays by itself.
  *
- * Monetag's rewarded-interstitial promise resolves after the ad is closed and
- * Monetag has confirmed the event; `reward_event_type === "valued"` is the
- * payout signal. The optional postback is recorded for audit, but it fires at
- * impression time and therefore can never be the sole completion proof.
+ * Monetag's server postback is the authoritative completion proof: it carries
+ * the shared secret, the unique ymid and the provider's valued/non_valued
+ * decision. The SDK result is used only for UI feedback and to ask the backend
+ * to poll/confirm; a forged client call cannot move progress.
  */
 const AD_CHALLENGE_TTL_MS = 15 * 60_000;
+// Provider postbacks can be delayed by retries. A confirmed valued postback
+// may still settle a challenge for two hours after the UI challenge expires.
+const POSTBACK_GRACE_MS = 2 * 3_600_000;
 const PROVIDER = "monetag" as const;
 
 type AdPurpose = "away" | "extension";
@@ -70,34 +74,49 @@ async function applyAdCompletion(
   challenge: Doc<"miningAdChallenges">,
   now: number,
 ): Promise<AdCompletionResult> {
-  if (challenge.status !== "pending") {
+  if (challenge.status !== "pending" && challenge.status !== "awaiting") {
     return { recorded: false, granted: false, progress: 0 };
   }
-  if (challenge.expiresAt <= now) {
+  const expiry = challenge.postbackValuedAt
+    ? challenge.expiresAt + POSTBACK_GRACE_MS
+    : challenge.expiresAt;
+  if (expiry <= now) {
     await ctx.db.patch(challenge._id, { status: "expired" });
+    return { recorded: false, granted: false, progress: 0 };
+  }
+  // Only a server-authenticated provider postback sets this field. It is the
+  // sole proof accepted for a reward.
+  if (challenge.postbackValuedAt === undefined) {
     return { recorded: false, granted: false, progress: 0 };
   }
 
   await ctx.db.patch(challenge._id, {
     status: "completed",
     completedAt: now,
-    providerEvent: challenge.postbackValuedAt
-      ? "monetag-sdk+postback"
-      : "monetag-sdk",
+    providerEvent: "monetag-postback",
     providerReference: String(challenge._id),
   });
+
+  const finish = async (result: AdCompletionResult) => {
+    if (result.recorded) {
+      await ctx.db.patch(challenge._id, {
+        grantedEntitlement: result.granted,
+      });
+    }
+    return result;
+  };
 
   const config = await loadConfig(ctx);
   const today = dayKey(now);
 
   if (challenge.purpose === "away") {
     if ((profile.awayMiningExpiresAt ?? 0) > now) {
-      return {
+      return await finish({
         recorded: true,
         granted: false,
         purpose: "away",
         progress: 0,
-      };
+      });
     }
     const next = (profile.awayMiningAdProgress ?? 0) + 1;
     if (next >= AWAY_ADS_REQUIRED) {
@@ -106,28 +125,31 @@ async function applyAdCompletion(
         awayMiningAdProgress: 0,
         awayMiningUnlockedAt: now,
         awayMiningExpiresAt: expiresAt,
+        // The away clock starts when the app actually closes. Clearing any
+        // stale marker prevents a previous absence from being replayed.
+        awayMiningStartedAt: undefined,
       });
       await notifyUser(
         ctx,
         profile,
         "mining",
-        "Away mining unlocked",
+        "Background mining unlocked",
         `You completed ${AWAY_ADS_REQUIRED} verified Monetag ads. Normal mining will continue while you are away until ${new Date(expiresAt).toISOString()} — check the Mining screen for the exact server expiry.`,
       );
-      return {
+      return await finish({
         recorded: true,
         granted: true,
         purpose: "away",
         progress: 0,
-      };
+      });
     }
     await ctx.db.patch(profile._id, { awayMiningAdProgress: next });
-    return {
+    return await finish({
       recorded: true,
       granted: false,
       purpose: "away",
       progress: next,
-    };
+    });
   }
 
   const dayRow = await ctx.db
@@ -141,23 +163,36 @@ async function applyAdCompletion(
     extensionActive ||
     profile.extensionUnlockDay === today
   ) {
-    return {
+    return await finish({
       recorded: true,
       granted: false,
       purpose: "extension",
       progress: 0,
-    };
+    });
   }
 
   const next = (profile.extensionAdProgress ?? 0) + 1;
   if (next >= EXTENSION_ADS_REQUIRED) {
     const endsAt = now + config.extensionHours * 3_600_000;
+    const sessionId = await ctx.db.insert("miningExtensionSessions", {
+      userId: profile.userId,
+      day: today,
+      adsCompleted: EXTENSION_ADS_REQUIRED,
+      normalMinedAtUnlockNex: roundNex(normalMined),
+      extensionHours: config.extensionHours,
+      startedAt: now,
+      endsAt,
+      minedNex: 0,
+      status: "active",
+      createdAt: now,
+    });
     await ctx.db.patch(profile._id, {
       extensionAdProgress: 0,
       extensionUnlockedAt: now,
       miningExtensionStartedAt: now,
       miningExtensionEndsAt: endsAt,
       extensionUnlockDay: today,
+      activeExtensionSessionId: sessionId,
     });
     await notifyUser(
       ctx,
@@ -166,21 +201,21 @@ async function applyAdCompletion(
       `${config.extensionHours}-hour extension unlocked`,
       `You completed ${EXTENSION_ADS_REQUIRED} verified Monetag ads. Extension mining is live until ${new Date(endsAt).toISOString()}. Earnings are recorded separately from the normal daily cap.`,
     );
-    return {
+    return await finish({
       recorded: true,
       granted: true,
       purpose: "extension",
       progress: 0,
       endsAt,
-    };
+    });
   }
   await ctx.db.patch(profile._id, { extensionAdProgress: next });
-  return {
+  return await finish({
     recorded: true,
     granted: false,
     purpose: "extension",
     progress: next,
-  };
+  });
 }
 
 /**
@@ -200,6 +235,11 @@ export const requestAd = mutation({
 
     if (!config.miningEnabled) {
       throw new Error("Mining is paused by the operator.");
+    }
+    if (!process.env.MONETAG_POSTBACK_SECRET) {
+      throw new Error(
+        "Verified ads are temporarily unavailable because the provider verification callback is not configured.",
+      );
     }
     if (profile.restricted) {
       throw new Error("This account is restricted. No ad rewards can be issued.");
@@ -244,7 +284,7 @@ export const requestAd = mutation({
 
     if (args.purpose === "away") {
       if ((profile.awayMiningExpiresAt ?? 0) > now) {
-        throw new Error("Away mining is already active for this account.");
+        throw new Error("Background mining is already active for this account.");
       }
     } else {
       if (normalMined < config.dailyLimitNex) {
@@ -298,6 +338,8 @@ export const confirmFromClient = mutation({
     estimatedPriceUsd: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    // The public client callback never grants by itself. It records the SDK
+    // result, then waits for the provider's secret-authenticated postback.
     const { profile } = await requireProfile(ctx);
     const challenge = await ctx.db.get(args.challengeId);
     if (!challenge || challenge.userId !== profile.userId) {
@@ -328,16 +370,42 @@ export const confirmFromClient = mutation({
         createdAt: Date.now(),
       });
     };
+    const settled = (current: Doc<"profiles">) => {
+      const granted = challenge.grantedEntitlement ?? false;
+      return {
+        status: granted ? ("granted" as const) : ("recorded" as const),
+        granted,
+        purpose: challenge.purpose,
+        progress: adProgress(current, challenge.purpose),
+        endsAt:
+          challenge.purpose === "extension"
+            ? (current.miningExtensionEndsAt ?? undefined)
+            : (current.awayMiningExpiresAt ?? undefined),
+      };
+    };
+    const now = Date.now();
 
     if (challenge.status === "completed") {
-      await logOutcome("duplicate", "Challenge was already completed.");
-      return { status: "already" as const };
+      if (challenge.clientCompletedAt === undefined) {
+        await ctx.db.patch(challenge._id, {
+          clientCompletedAt: now,
+          clientRewardEventType: args.rewardEventType,
+          clientEstimatedPriceUsd: cleanPrice(args.estimatedPriceUsd),
+        });
+      }
+      // Idempotent for the polling client: return the settled outcome without
+      // ever applying the challenge a second time. This is a normal poll, not
+      // a duplicate ad attempt, so it is not written to the rejection log.
+      return settled(profile);
     }
-    if (challenge.status !== "pending") {
-      await logOutcome("expired", "Challenge was no longer pending.");
+    if (challenge.status === "rejected") {
+      await logOutcome("duplicate", "Challenge was already rejected.");
+      throw new Error("Monetag rejected this view. Request a new ad.");
+    }
+    if (challenge.status === "expired") {
+      await logOutcome("expired", "Challenge had already expired.");
       throw new Error("This ad challenge has expired. Request a new ad.");
     }
-    const now = Date.now();
     if (challenge.expiresAt <= now) {
       await ctx.db.patch(challenge._id, { status: "expired" });
       await logOutcome("expired", "Challenge expired before confirmation.");
@@ -345,6 +413,7 @@ export const confirmFromClient = mutation({
     }
 
     if (args.rewardEventType !== "valued") {
+      await ctx.db.patch(challenge._id, { status: "rejected" });
       await logOutcome(
         "rejected",
         `Provider reward_event_type=${args.rewardEventType}.`,
@@ -356,6 +425,7 @@ export const confirmFromClient = mutation({
       };
     }
     if (args.eventType === "click") {
+      await ctx.db.patch(challenge._id, { status: "rejected" });
       await logOutcome("rejected", "Provider reported a click, not a view.");
       return {
         status: "rejected" as const,
@@ -363,21 +433,25 @@ export const confirmFromClient = mutation({
           "Monetag reported a click, not a completed rewarded view. No progress was added.",
       };
     }
-    if (challenge.postbackRewardEventType === "non_valued") {
-      await logOutcome("rejected", "Provider postback marked non_valued.");
-      return {
-        status: "rejected" as const,
-        message:
-          "Monetag marked this event as non-valued. No progress was added.",
-      };
-    }
-
     if (challenge.clientCompletedAt === undefined) {
       await ctx.db.patch(challenge._id, {
         clientCompletedAt: now,
         clientRewardEventType: args.rewardEventType,
         clientEstimatedPriceUsd: cleanPrice(args.estimatedPriceUsd),
       });
+    }
+
+    if (challenge.postbackValuedAt === undefined) {
+      if (challenge.status === "pending") {
+        await ctx.db.patch(challenge._id, { status: "awaiting" });
+      }
+      return {
+        status: "pending" as const,
+        message:
+          challenge.postbackRewardEventType === "non_valued"
+            ? "Monetag marked this view as non-valued or has not sent a paid confirmation. No progress was added."
+            : "Monetag has not sent its server confirmation yet. No progress was added; this view will count automatically if the provider confirms it.",
+      };
     }
 
     const result = await applyAdCompletion(ctx, profile, challenge, now);
@@ -397,9 +471,10 @@ export const confirmFromClient = mutation({
 });
 
 /**
- * Optional Monetag server postback. It arrives at impression time, so it is
- * deliberately recorded for audit and non-valued rejection only; it never
- * settles an entitlement by itself. The SDK completion callback does that.
+ * Monetag server postback. This is the authoritative completion proof: the
+ * request carries the shared secret, the unique ymid and the provider's own
+ * valued/non_valued decision. A client can call confirmFromClient with any
+ * payload it likes, but no progress is applied without this callback.
  */
 export const recordMonetagPostback = internalMutation({
   args: {
@@ -434,10 +509,18 @@ export const recordMonetagPostback = internalMutation({
     }
 
     const now = Date.now();
-    if (challenge.status === "expired") {
+    if (challenge.status === "completed") {
+      return {
+        recorded: true as const,
+        valued: challenge.postbackRewardEventType === "valued",
+        applied: false as const,
+        granted: challenge.grantedEntitlement ?? false,
+      };
+    }
+    if (challenge.status === "expired" || challenge.status === "rejected") {
       return { recorded: false as const };
     }
-    if (challenge.status === "pending" && challenge.expiresAt <= now) {
+    if (challenge.expiresAt + POSTBACK_GRACE_MS <= now) {
       await ctx.db.patch(challenge._id, { status: "expired" });
       return { recorded: false as const };
     }
@@ -460,6 +543,53 @@ export const recordMonetagPostback = internalMutation({
     }
     await ctx.db.patch(challenge._id, patch);
 
-    return { recorded: true as const, valued };
+    if (!valued) {
+      return { recorded: true as const, valued: false as const };
+    }
+
+    // Re-read after the patch so applyAdCompletion sees the authenticated
+    // postback timestamp in this same transaction.
+    const verified = (await ctx.db.get(challenge._id))!;
+    const result = await applyAdCompletion(ctx, profile, verified, now);
+    if (result.recorded) {
+      await ctx.db.insert("adVerificationEvents", {
+        userId: profile.userId,
+        purpose: challenge.purpose,
+        provider: PROVIDER,
+        outcome: "verified",
+        reason: result.granted
+          ? "Provider postback granted the entitlement."
+          : "Provider postback recorded progress.",
+        createdAt: now,
+      });
+    }
+
+    return {
+      recorded: true as const,
+      valued: true as const,
+      applied: result.recorded,
+      granted: result.granted,
+    };
+  },
+});
+
+/** Marks expired extension sessions after their server-enforced end time. */
+export const finalizeExtensionSessions = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const rows = await ctx.db
+      .query("miningExtensionSessions")
+      .withIndex("by_status_endsAt", (q) =>
+        q.eq("status", "active").lte("endsAt", now),
+      )
+      .take(100);
+    for (const row of rows) {
+      await ctx.db.patch(row._id, {
+        status: "expired",
+        finalizedAt: row.endsAt,
+      });
+    }
+    return { finalized: rows.length };
   },
 });

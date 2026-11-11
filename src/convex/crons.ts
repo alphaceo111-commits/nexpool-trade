@@ -14,4 +14,13 @@ crons.interval(
   {},
 );
 
+// Finalizes five-hour extension rows from server time even when the user never
+// reopens NEXPOOL after the window ends.
+crons.interval(
+  "finalize extension sessions",
+  { minutes: 10 },
+  internal.miningAds.finalizeExtensionSessions,
+  {},
+);
+
 export default crons;

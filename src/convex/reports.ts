@@ -48,6 +48,8 @@ export const adminReports = query({
       audits,
       completions,
       contacts,
+      miningDays,
+      extensionSessions,
     ] = await Promise.all([
       ctx.db.query("profiles").collect(),
       ctx.db.query("balances").collect(),
@@ -59,6 +61,8 @@ export const adminReports = query({
       ctx.db.query("auditLogs").withIndex("by_createdAt").order("desc").take(25),
       ctx.db.query("taskCompletions").collect(),
       ctx.db.query("telegramContacts").collect(),
+      ctx.db.query("miningDays").collect(),
+      ctx.db.query("miningExtensionSessions").collect(),
     ]);
 
     const profileById = new Map(profiles.map((p) => [String(p._id), p]));
@@ -108,6 +112,41 @@ export const adminReports = query({
         (row.refId ?? row.memo).includes("extension"),
       );
 
+    // Presentation flags are not lifecycle counts. These markers are written
+    // by the mining engine when the event actually happened.
+    const minerIdsFromLedger = new Set(miningRows.map((row) => String(row.userId)));
+    const startedMinerIds = new Set(
+      profiles
+        .filter(
+          (profile) =>
+            profile.firstMiningStartedAt !== undefined ||
+            minerIdsFromLedger.has(String(profile.userId)),
+        )
+        .map((profile) => String(profile.userId)),
+    );
+    const startedToday = profiles.filter(
+      (profile) => (profile.firstMiningStartedAt ?? 0) >= today,
+    ).length;
+    const capDayRows = miningDays.filter(
+      (row) =>
+        row.capReachedAt !== undefined ||
+        (row.normalMinedNex ?? row.minedNex) >= config.dailyLimitNex,
+    );
+    const capUserIds = new Set(
+      capDayRows.map((row) => String(row.userId)),
+    );
+    const capToday = capDayRows.filter(
+      (row) =>
+        (row.capReachedAt ?? row.updatedAt) >= today &&
+        (row.capReachedAt ?? row.updatedAt) < now + 1,
+    ).length;
+    const activeExtensionSessions = extensionSessions.filter(
+      (row) => row.endsAt > now,
+    );
+    const expiredExtensionSessions = extensionSessions.filter(
+      (row) => row.endsAt <= now,
+    );
+
     const miningReport = {
       todayNex: confirmedEarnings(["mining"], { from: today, to: now + 1 }),
       yesterdayNex: confirmedEarnings(["mining"], { from: yesterday, to: today }),
@@ -128,6 +167,27 @@ export const adminReports = query({
         { from: today, to: now + 1 },
       ),
       uniqueMinersAllTime: new Set(miningRows.map((row) => String(row.userId))).size,
+      startedMiningUsers: startedMinerIds.size,
+      startedMiningToday: startedToday,
+      reachedCapUsers: capUserIds.size,
+      capEventsToday: capToday,
+      capEventsAllTime: capDayRows.length,
+      extensionSessions: {
+        granted: extensionSessions.length,
+        users: new Set(extensionSessions.map((row) => String(row.userId))).size,
+        active: activeExtensionSessions.length,
+        expired: expiredExtensionSessions.length,
+        minedNex: roundNex(
+          extensionSessions.reduce((total, row) => total + row.minedNex, 0),
+        ),
+        expectedMaxNex: roundNex(
+          extensionSessions.reduce(
+            (total, row) =>
+              total + config.baseRateNexPerHour * row.extensionHours,
+            0,
+          ),
+        ),
+      },
       confirmedEntries: miningRows.length,
       trend: Array.from({ length: 14 })
         .map((_, index) => {
@@ -243,6 +303,16 @@ export const adminReports = query({
       extensionUnlocks: profiles.filter(
         (profile) => profile.extensionUnlockedAt !== undefined,
       ).length,
+      awayUsers: new Set(
+        completedAds
+          .filter((row) => row.purpose === "away")
+          .map((row) => String(row.userId)),
+      ).size,
+      extensionUsers: new Set(
+        completedAds
+          .filter((row) => row.purpose === "extension")
+          .map((row) => String(row.userId)),
+      ).size,
       failedAttempts: adEvents.filter((row) =>
         ["invalid", "expired", "unavailable"].includes(row.outcome),
       ).length,
@@ -422,6 +492,7 @@ export const adminReports = query({
         withdrawalsEnabled: config.withdrawalsEnabled,
         dailyLimitNex: config.dailyLimitNex,
         baseRateNexPerHour: config.baseRateNexPerHour,
+        adsProviderReady: Boolean(process.env.MONETAG_POSTBACK_SECRET),
       },
       mining: miningReport,
       users: userReport,

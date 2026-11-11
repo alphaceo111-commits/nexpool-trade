@@ -735,7 +735,7 @@ function EconomyForm({ config }: { config: AdminConfig }) {
                 step="any"
               />
             </Field>
-            <Field label="Away permission (hours)" hint="Granted after 10 verified ads.">
+            <Field label="Background permission (hours)" hint="Granted after 10 provider-verified ads.">
               <NumberInput
                 value={form.awayMiningHours}
                 onChange={(value) => set("awayMiningHours", value)}

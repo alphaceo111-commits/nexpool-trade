@@ -450,7 +450,7 @@ export default function Home() {
             ) : null}
             {mining.awayMiningActive ? (
               <p className="mt-2 font-mono text-[8.5px] uppercase tracking-[0.08em] text-up">
-                Away mining permission active
+                Background mining permission active
               </p>
             ) : null}
         </Panel>

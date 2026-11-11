@@ -185,10 +185,10 @@ http.route({
 });
 
 /**
- * Optional Monetag postback. Monetag sends this at impression time, so it is
- * never treated as a completed view. It only records monetization evidence and
- * can reject an event Monetag later marks non-valued. The Monetag SDK's
- * backend-confirmed reward callback is what settles the challenge.
+ * Authoritative Monetag server postback. The shared secret authenticates the
+ * request, the ymid ties it to one server-issued challenge, and only
+ * reward_event_type=valued can settle progress. The frontend SDK callback is
+ * never sufficient on its own.
  */
 http.route({
   path: "/monetag/postback",

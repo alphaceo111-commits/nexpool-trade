@@ -547,6 +547,23 @@ function extensionMinedFromRow(
   return roundNex(row?.extensionMinedNex ?? 0);
 }
 
+async function markCapReached(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  day: string,
+  capNex: number,
+  reachedAt: number,
+) {
+  const row = await getMiningDay(ctx, userId, day);
+  if (
+    row &&
+    row.capReachedAt === undefined &&
+    normalMinedFromRow(row) >= capNex
+  ) {
+    await ctx.db.patch(row._id, { capReachedAt: reachedAt });
+  }
+}
+
 /** Upserts one day's normal and extension buckets plus their ledger rows. */
 async function applyMiningCredit(
   ctx: MutationCtx,
@@ -580,6 +597,15 @@ async function applyMiningCredit(
       extensionMinedNex: extensionNex,
       updatedAt: toTs,
     });
+  }
+
+  if (extensionNex > 0 && profile.activeExtensionSessionId) {
+    const session = await ctx.db.get(profile.activeExtensionSessionId);
+    if (session) {
+      await ctx.db.patch(session._id, {
+        minedNex: roundNex(session.minedNex + extensionNex),
+      });
+    }
   }
 
   const entry = await ctx.db
@@ -733,9 +759,30 @@ async function creditMiningWindow(
         cursor,
         sliceEnd,
       );
+      if (mode === "normal") {
+        await markCapReached(
+          ctx,
+          profile.userId,
+          day,
+          config.dailyLimitNex,
+          sliceEnd,
+        );
+      }
       lastCreditedAt = sliceEnd;
     }
     cursor = sliceEnd;
+  }
+
+  // Finalize the granted session as soon as the server has credited through
+  // its expiry. Keeping the row preserves the final extension earnings.
+  if (profile.activeExtensionSessionId) {
+    const session = await ctx.db.get(profile.activeExtensionSessionId);
+    if (session && session.endsAt <= to && session.status === "active") {
+      await ctx.db.patch(session._id, {
+        status: "expired",
+        finalizedAt: Math.min(to, session.endsAt),
+      });
+    }
   }
 
   const creditedNex = roundNex(normalNex + extensionNex);
@@ -833,16 +880,25 @@ async function settleAwayMining(
     !config.miningEnabled ||
     profile.restricted ||
     speed.total <= 0 ||
-    !profile.awayMiningExpiresAt ||
-    profile.awayMiningStartedAt === undefined
+    !profile.awayMiningExpiresAt
   ) {
     await ctx.db.patch(profile._id, { awayMiningStartedAt: undefined });
     return { creditedNex: 0, status: "paused" as const };
   }
 
+  // A clean visibility/pagehide transition records `awayMiningStartedAt`.
+  // Telegram can also terminate the WebView without firing either event, so
+  // fall back to the last server-credited presence timestamp. This credits the
+  // real absence only; it can never pay the time the app was open and already
+  // settled, and it is always clipped to the entitlement expiry.
+  const lastPresence =
+    profile.miningSessionCreditedAt ?? profile.miningSessionHeartbeatAt;
+  const from = Math.max(
+    profile.awayMiningStartedAt ?? lastPresence ?? profile.awayMiningUnlockedAt ?? now,
+    profile.awayMiningUnlockedAt ?? 0,
+  );
   // Settle even if the permission window has already ended: the user is
   // entitled to the part of the absence that fell inside the window.
-  const from = profile.awayMiningStartedAt;
   const to = Math.min(now, profile.awayMiningExpiresAt);
   if (to <= from) {
     await ctx.db.patch(profile._id, { awayMiningStartedAt: undefined });
@@ -874,14 +930,17 @@ export type MiningSnapshot = {
   resetAt: number;
   lastSettledAt: number;
   uncollectedMs: number;
+  capReachedAt: number | null;
   sessionActive: boolean;
   awayMiningActive: boolean;
   awayMiningExpiresAt: number | null;
+  awayMiningExpired: boolean;
   awayMiningHours: number;
   extensionActive: boolean;
   extensionStartedAt: number | null;
   extensionEndsAt: number | null;
   extensionRemainingMs: number;
+  extensionExpiredToday: boolean;
   ads: {
     providerReady: boolean;
     away: {
@@ -890,6 +949,7 @@ export type MiningSnapshot = {
       active: boolean;
       unlockedAt: number | null;
       expiresAt: number | null;
+      expired: boolean;
     };
     extension: {
       required: number;
@@ -898,6 +958,7 @@ export type MiningSnapshot = {
       eligible: boolean;
       endsAt: number | null;
       unlockedToday: boolean;
+      expiredToday: boolean;
     };
     pending: { id: string; purpose: "away" | "extension"; expiresAt: number } | null;
   };
@@ -957,6 +1018,20 @@ export async function readMiningSnapshot(
   const awayProgress = profile.awayMiningAdProgress ?? 0;
   const extensionProgress = profile.extensionAdProgress ?? 0;
   const unlockedToday = profile.extensionUnlockDay === today;
+  const storedExtensionEndsAt = profile.miningExtensionEndsAt ?? null;
+  const extensionExpiredToday = Boolean(
+    !extensionLive &&
+      storedExtensionEndsAt !== null &&
+      storedExtensionEndsAt <= now &&
+      (unlockedToday || dayKey(storedExtensionEndsAt) === today),
+  );
+  const awayExpired = Boolean(
+    profile.awayMiningExpiresAt !== undefined &&
+      profile.awayMiningExpiresAt <= now,
+  );
+  const capReachedAt =
+    dayRow?.capReachedAt ??
+    (alreadyMined >= config.dailyLimitNex ? (dayRow?.updatedAt ?? null) : null);
 
   return {
     status,
@@ -970,24 +1045,37 @@ export async function readMiningSnapshot(
     resetAt: nextUtcMidnight(now),
     lastSettledAt: balance.lastSettledAt,
     uncollectedMs: pendingMs,
+    capReachedAt,
     sessionActive,
     awayMiningActive: awayActive,
     awayMiningExpiresAt: profile.awayMiningExpiresAt ?? null,
+    awayMiningExpired: awayExpired,
     awayMiningHours: config.awayMiningHours,
     extensionActive: extensionLive,
-    extensionStartedAt: extension?.startedAt ?? null,
-    extensionEndsAt: extension?.endsAt ?? null,
+    extensionStartedAt:
+      extension?.startedAt ??
+      (unlockedToday || extensionExpiredToday
+        ? (profile.miningExtensionStartedAt ??
+          profile.extensionUnlockedAt ??
+          null)
+        : null),
+    extensionEndsAt:
+      extension?.endsAt ??
+      (unlockedToday || extensionExpiredToday ? storedExtensionEndsAt : null),
     extensionRemainingMs: extension ? extension.endsAt - now : 0,
+    extensionExpiredToday,
     ads: {
-      // Monetag runs through the shell SDK, so the server does not need a
-      // block credential. The optional postback secret is separate.
-      providerReady: true,
+      // A server-authenticated provider postback is required before progress
+      // is applied. Without the shared secret the app must fail closed rather
+      // than trusting a client-supplied "valued" result.
+      providerReady: Boolean(process.env.MONETAG_POSTBACK_SECRET),
       away: {
         required: AWAY_ADS_REQUIRED,
         completed: awayProgress,
         active: awayActive,
         unlockedAt: profile.awayMiningUnlockedAt ?? null,
         expiresAt: profile.awayMiningExpiresAt ?? null,
+        expired: awayExpired,
       },
       extension: {
         required: EXTENSION_ADS_REQUIRED,
@@ -996,6 +1084,7 @@ export async function readMiningSnapshot(
         eligible: remaining <= 0 && !extensionLive && !unlockedToday,
         endsAt: extension?.endsAt ?? null,
         unlockedToday,
+        expiredToday: extensionExpiredToday,
       },
       pending:
         pendingChallenge && pendingChallenge.expiresAt > now
@@ -1057,10 +1146,7 @@ export async function startMiningSession(
   }
 
   let creditedNex = 0;
-  if (
-    profile.awayMiningStartedAt !== undefined &&
-    profile.awayMiningExpiresAt !== undefined
-  ) {
+  if (profile.awayMiningExpiresAt !== undefined) {
     const away = await settleAwayMining(
       ctx,
       profile,
@@ -1070,8 +1156,10 @@ export async function startMiningSession(
       now,
     );
     creditedNex = away.creditedNex;
-    // settleAwayMining patched the in-memory profile only in the database.
-    profile = { ...profile, awayMiningStartedAt: undefined };
+    // settleAwayMining and the credit loop write several counters directly.
+    // Re-read before starting the new presence window.
+    profile = (await ctx.db.get(profile._id))!;
+    balance = (await ctx.db.get(balance._id))!;
   }
 
   const dayRow = await getMiningDay(ctx, profile.userId, dayKey(now));
@@ -1093,6 +1181,7 @@ export async function startMiningSession(
     miningSessionHeartbeatAt: now,
     miningSessionCreditedAt: now,
     awayMiningStartedAt: undefined,
+    firstMiningStartedAt: profile.firstMiningStartedAt ?? now,
     lastActiveAt: now,
   });
   return { creditedNex, status: "active" as const };
@@ -1110,7 +1199,10 @@ export async function heartbeatMiningSession(
     return await startMiningSession(ctx, profile, balance, config, speed);
   }
   const now = Date.now();
-  await ctx.db.patch(profile._id, { lastActiveAt: now });
+  await ctx.db.patch(profile._id, {
+    lastActiveAt: now,
+    firstMiningStartedAt: profile.firstMiningStartedAt ?? now,
+  });
   if (!config.miningEnabled || profile.restricted || speed.total <= 0) {
     return {
       creditedNex: 0,

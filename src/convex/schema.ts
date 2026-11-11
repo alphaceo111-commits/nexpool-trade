@@ -198,6 +198,13 @@ const schema = defineSchema(
       miningSessionStartedAt: v.optional(v.number()),
       miningSessionHeartbeatAt: v.optional(v.number()),
       miningSessionCreditedAt: v.optional(v.number()),
+      // Permanent lifecycle marker. The live session fields are cleared when
+      // the app closes, so this is what reporting uses for "Ever started".
+      firstMiningStartedAt: v.optional(v.number()),
+      // The currently granted five-hour extension, if any. Session rows keep
+      // the grant, expiry and final earnings even after the profile fields are
+      // reused by a later day.
+      activeExtensionSessionId: v.optional(v.id("miningExtensionSessions")),
       // Start of the current away-mining window after the app was closed.
       awayMiningStartedAt: v.optional(v.number()),
       // Independently tracked verified-ad progress. The counters reset only
@@ -337,6 +344,9 @@ const schema = defineSchema(
       minedNex: v.number(),
       normalMinedNex: v.optional(v.number()),
       extensionMinedNex: v.optional(v.number()),
+      // First confirmed moment normal mining hit this day's cap. Reporting
+      // counts cap events from here, not from a popup presentation.
+      capReachedAt: v.optional(v.number()),
       updatedAt: v.number(),
     }).index("by_user_day", ["userId", "day"]),
 
@@ -364,8 +374,12 @@ const schema = defineSchema(
       provider: v.string(),
       status: v.union(
         v.literal("pending"),
+        // The SDK reported a valued view, but the provider postback has not
+        // authenticated it yet. The challenge cannot be shown again.
+        v.literal("awaiting"),
         v.literal("completed"),
         v.literal("expired"),
+        v.literal("rejected"),
       ),
       createdAt: v.number(),
       expiresAt: v.number(),
@@ -380,9 +394,33 @@ const schema = defineSchema(
       postbackValuedAt: v.optional(v.number()),
       postbackRewardEventType: v.optional(v.string()),
       postbackEstimatedPriceUsd: v.optional(v.number()),
+      // Set when this challenge actually granted its purpose entitlement, so
+      // a delayed client poll can report the correct result after the postback
+      // has already settled it.
+      grantedEntitlement: v.optional(v.boolean()),
     })
       .index("by_user_status_createdAt", ["userId", "status", "createdAt"])
       .index("by_createdAt", ["createdAt"]),
+
+    // One row per granted five-hour extension. `minedNex` is updated from the
+    // confirmed extension ledger bucket, so an expired session keeps its final
+    // reward independently of the current profile fields.
+    miningExtensionSessions: defineTable({
+      userId: v.id("users"),
+      day: v.string(),
+      adsCompleted: v.number(),
+      normalMinedAtUnlockNex: v.number(),
+      extensionHours: v.number(),
+      startedAt: v.number(),
+      endsAt: v.number(),
+      minedNex: v.number(),
+      status: v.union(v.literal("active"), v.literal("expired")),
+      finalizedAt: v.optional(v.number()),
+      createdAt: v.number(),
+    })
+      .index("by_user_startedAt", ["userId", "startedAt"])
+      .index("by_status_endsAt", ["status", "endsAt"])
+      .index("by_startedAt", ["startedAt"]),
 
     // Single source of truth for every NEX movement.
     ledger: defineTable({

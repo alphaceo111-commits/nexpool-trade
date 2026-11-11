@@ -82,6 +82,8 @@ export default function Mining() {
   const { mining, speed, config, referrals, miningHistory } = snapshot;
   const active = mining.status === "active";
   const extensionLive = mining.extensionActive;
+  const extensionExpired = mining.extensionExpiredToday;
+  const providerReady = mining.ads.providerReady;
   const remainingMs = Math.max(
     0,
     mining.resetAt - (snapshot.serverNow + tick * 1000),
@@ -97,6 +99,12 @@ export default function Mining() {
 
   const watchAds = async (purpose: "away" | "extension") => {
     if (adBusy) return;
+    if (!providerReady) {
+      setAdNotice(
+        "Verified ads are unavailable until the Monetag server confirmation callback is configured. No progress can be granted manually.",
+      );
+      return;
+    }
     setAdNotice(null);
     const result = await watchAd(purpose);
     setAdNotice(result.message);
@@ -312,7 +320,11 @@ export default function Mining() {
             </p>
             <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
               {mining.status === "limit"
-                ? `You have mined the full ${formatNex(config.dailyLimitNex)} NEX normal allowance for today. Watch ${mining.ads.extension.required} verified ads below to unlock ${config.extensionHours} more hours; normal mining also resumes at 00:00 UTC in ${countdown(remainingMs)}.`
+                ? extensionExpired
+                  ? `Your ${config.extensionHours}-hour extension has ended. It added ${formatNex(mining.extensionMinedNex)} NEX beyond the normal cap today. Normal mining resumes at 00:00 UTC in ${countdown(remainingMs)}.`
+                  : mining.ads.extension.unlockedToday
+                    ? `Your ${config.extensionHours}-hour extension was already granted today. Extension earnings are recorded separately; normal mining resumes at 00:00 UTC in ${countdown(remainingMs)}.`
+                    : `You have mined the full ${formatNex(config.dailyLimitNex)} NEX normal allowance for today. Watch ${mining.ads.extension.required} server-verified ads below to unlock ${config.extensionHours} more hours; normal mining also resumes at 00:00 UTC in ${countdown(remainingMs)}.`
                 : mining.status === "restricted"
                   ? snapshot.account.restrictionReason ||
                     "Contact support. Accrual is frozen while the restriction is in place."
@@ -328,7 +340,7 @@ export default function Mining() {
         <div className="flex items-start gap-2.5 rounded-md border border-up/40 bg-up/[0.05] px-3.5 py-3">
           <Plane className="mt-0.5 size-4 shrink-0 text-up" />
           <div>
-            <p className="text-[12px] font-medium">Away mining active</p>
+            <p className="text-[12px] font-medium">Background mining active</p>
             <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
               Verified permission is live for {countdown(awayMs)}. Mining
               continues on server time while the Mini App is closed, up to the
@@ -338,11 +350,31 @@ export default function Mining() {
         </div>
       ) : null}
 
+      {extensionExpired ? (
+        <div className="flex items-start gap-2.5 rounded-md border border-gold/40 bg-gold/[0.05] px-3.5 py-3">
+          <Megaphone className="mt-0.5 size-4 shrink-0 text-gold" />
+          <div>
+            <p className="text-[12px] font-medium">
+              {config.extensionHours}-hour extension completed
+            </p>
+            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+              The additional session ended at{" "}
+              {mining.extensionEndsAt
+                ? formatDateTime(mining.extensionEndsAt)
+                : "its server expiry"}{" "}
+              and earned {formatNex(mining.extensionMinedNex)} NEX outside the
+              normal daily cap. The next extension can be unlocked after a new
+              normal cap is reached.
+            </p>
+          </div>
+        </div>
+      ) : null}
+
       <div id="ad-unlocks" className="scroll-mt-4 space-y-3">
         <SectionHeading
           index="03"
           title="Verified ad unlocks"
-          body="Two independent entitlements. Both require completed Monetag reward views, confirmed by the Monetag SDK callback."
+          body="Two independent entitlements. Both require a Monetag server postback that authenticates the valued view; a click or client callback alone never counts."
         />
         {adNotice ? (
           <div className="flex items-start gap-2.5 rounded-md border border-primary/40 bg-primary/[0.05] px-3.5 py-2.5">
@@ -356,7 +388,7 @@ export default function Mining() {
           <AdUnlockCard
             icon={Plane}
             eyebrow="Leave the app"
-            title="Away mining"
+            title="Background mining"
             description={`Normal mining pauses when you close the Mini App. Complete ${mining.ads.away.required} separately verified ads to keep it running for ${mining.awayMiningHours} hours.`}
             completed={mining.ads.away.completed}
             required={mining.ads.away.required}
@@ -365,10 +397,21 @@ export default function Mining() {
             note={
               mining.ads.away.active
                 ? "Permission is stored on the server and expires automatically."
-                : "One verified view counts once. Opening or clicking an ad never counts."
+                : mining.ads.away.expired
+                  ? "Your last background-mining permission has expired. Complete a new 10-ad unlock to start another window."
+                  : providerReady
+                    ? "One provider-confirmed view counts once. Opening or clicking an ad never counts."
+                    : "Provider verification is not configured. Ads cannot grant progress until the Monetag postback secret is set."
             }
             busy={adBusy === "away"}
-            disabled={mining.ads.away.active}
+            disabled={mining.ads.away.active || !providerReady}
+            ctaLabel={
+              mining.ads.away.active
+                ? "Permission active"
+                : providerReady
+                  ? undefined
+                  : "Verification unavailable"
+            }
             onWatch={() => void watchAds("away")}
             onOpenDetails={() => openMiningPopup("away")}
           />
@@ -384,15 +427,34 @@ export default function Mining() {
             note={
               mining.ads.extension.active
                 ? `${formatNex(mining.extensionMinedNex)} NEX extension earnings confirmed today.`
-                : mining.ads.extension.unlockedToday
-                  ? "Unlocked once today. The next extension becomes available after the next normal cap."
-                  : mining.remainingTodayNex > 0
-                    ? `Reach the normal cap first — ${formatNex(mining.remainingTodayNex)} NEX remaining.`
-                    : "Unlock once per UTC day. The extension window starts immediately."
+                : extensionExpired
+                  ? `Session completed. ${formatNex(mining.extensionMinedNex)} NEX was earned in the separate extension bucket today.`
+                  : mining.ads.extension.unlockedToday
+                    ? "Unlocked once today. The next extension becomes available after the next normal cap."
+                    : mining.remainingTodayNex > 0
+                      ? `Reach the normal cap first — ${formatNex(mining.remainingTodayNex)} NEX remaining.`
+                      : providerReady
+                        ? "Unlock once per UTC day. The extension window starts immediately."
+                        : "Provider verification is not configured. Ads cannot grant progress until the Monetag postback secret is set."
             }
             busy={adBusy === "extension"}
             disabled={
-              mining.ads.extension.active || !mining.ads.extension.eligible
+              mining.ads.extension.active ||
+              !mining.ads.extension.eligible ||
+              !providerReady
+            }
+            ctaLabel={
+              mining.ads.extension.active
+                ? "Permission active"
+                : extensionExpired
+                  ? "Session completed today"
+                  : !mining.ads.extension.eligible
+                    ? mining.remainingTodayNex > 0
+                      ? "Reach the daily cap first"
+                      : "Already completed today"
+                    : providerReady
+                      ? undefined
+                      : "Verification unavailable"
             }
             onWatch={() => void watchAds("extension")}
             onOpenDetails={() => openMiningPopup("extension")}
@@ -528,7 +590,7 @@ export default function Mining() {
                 icon: Megaphone,
               },
               {
-                label: "Away permission",
+                label: "Background permission",
                 value: mining.awayMiningActive
                   ? `${countdown(awayMs)} left`
                   : `${mining.awayMiningHours} h after 10 ads`,
@@ -560,14 +622,14 @@ export default function Mining() {
                 <span className="num text-[11px]">{row.value}</span>
               </div>
             ))}
-          </div>
-          <div className="mt-3 rounded-sm border border-border/70 bg-panel/50 p-2.5">
+          </div>              <div className="mt-3 rounded-sm border border-border/70 bg-panel/50 p-2.5">
             <p className="text-[10px] leading-relaxed text-muted-foreground">
               Rewards accrue only during a live, heartbeated session while the
-              Mini App is open, unless away mining was unlocked with 10 verified
-              ads. Normal earnings stop at 0.000006000 NEX per UTC day. The
-              five-hour extension is a separate bucket and never raises the
-              normal cap. Everything is settled from server time.
+              Mini App is open, unless background mining was unlocked with 10 verified
+              ads. Normal earnings stop at {formatNex(config.dailyLimitNex)} NEX
+              per UTC day. The five-hour extension is a separate bucket and
+              never raises the normal cap. Everything is settled from server
+              time; a closed app is reconciled from the last server credit.
             </p>
           </div>
         </Panel>
@@ -641,6 +703,7 @@ function AdUnlockCard({
   note,
   busy,
   disabled,
+  ctaLabel,
   onWatch,
   onOpenDetails,
 }: {
@@ -655,6 +718,7 @@ function AdUnlockCard({
   note: string;
   busy: boolean;
   disabled: boolean;
+  ctaLabel?: string;
   onWatch: () => void;
   onOpenDetails: () => void;
 }) {
@@ -693,10 +757,8 @@ function AdUnlockCard({
       >
         {busy ? <Spinner /> : <Icon className="size-3.5" />}
         {busy
-          ? "Waiting for verified ad"
-          : active
-            ? "Permission active"
-            : `Watch Monetag ad · ${Math.min(completed + 1, required)}/${required}`}
+          ? "Waiting for provider confirmation"
+          : (ctaLabel ?? `Watch Monetag ad · ${Math.min(completed + 1, required)}/${required}`)}
       </Button>
       <button
         type="button"

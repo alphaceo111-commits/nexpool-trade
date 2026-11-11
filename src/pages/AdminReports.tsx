@@ -85,7 +85,7 @@ export default function AdminReports() {
     );
   }
 
-  const { mining, users, ads, referrals, financial, audit } = reports;
+  const { mining, users, ads, referrals, financial, audit, config } = reports;
 
   return (
     <div className="min-h-[100dvh] bg-background">
@@ -179,6 +179,58 @@ export default function AdminReports() {
                 <Metric label="7 days" value={formatNex(mining.weekNex)} />
                 <Metric label="30 days" value={formatNex(mining.monthNex)} />
               </div>
+              <Panel
+                eyebrow="Mining lifecycle"
+                title="Starts, cap events and extension sessions"
+              >
+                <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+                  <Metric
+                    label="Miners started"
+                    value={mining.startedMiningUsers}
+                    sub={`${mining.startedMiningToday} today`}
+                  />
+                  <Metric
+                    label="Cap reached"
+                    value={mining.reachedCapUsers}
+                    sub={`${mining.capEventsAllTime} events all time`}
+                  />
+                  <Metric
+                    label="Cap events today"
+                    value={mining.capEventsToday}
+                    sub="recorded by the engine"
+                    tone="warn"
+                  />
+                  <Metric
+                    label="Extension grants"
+                    value={mining.extensionSessions.granted}
+                    sub={`${mining.extensionSessions.users} users`}
+                    tone="gold"
+                  />
+                  <Metric
+                    label="Extension active"
+                    value={mining.extensionSessions.active}
+                    sub="server window live"
+                    tone="up"
+                  />
+                  <Metric
+                    label="Extension ended"
+                    value={mining.extensionSessions.expired}
+                    sub="final reward preserved"
+                  />
+                  <Metric
+                    label="Extension NEX"
+                    value={formatNex(mining.extensionSessions.minedNex)}
+                    sub={`max ${formatNex(mining.extensionSessions.expectedMaxNex)} at base`}
+                    tone="gold"
+                  />
+                  <Metric
+                    label="Normal NEX"
+                    value={formatNex(mining.normal.allTimeNex)}
+                    sub="separate cap bucket"
+                  />
+                </div>
+              </Panel>
+
               <div className="grid gap-3.5 lg:grid-cols-2">
                 <Panel eyebrow="Confirmed rewards" title="All-time mining ledger">
                   <div className="grid grid-cols-2 gap-2">
@@ -284,10 +336,25 @@ export default function AdminReports() {
               <div className="grid gap-3.5 lg:grid-cols-2">
                 <Panel eyebrow="Rewarded ads" title="Provider-confirmed completions">
                   <div className="grid grid-cols-2 gap-2">
-                    <Metric label="Away mining ads" value={ads.awayCompleted} sub="10 required" />
-                    <Metric label="Extension ads" value={ads.extensionCompleted} sub="20 required" />
-                    <Metric label="Away unlocks" value={ads.awayUnlocks} sub="accounts with a window" />
+                    <Metric label="Background ads" value={ads.awayCompleted} sub={`${ads.awayUsers} users`} />
+                    <Metric label="Extension ads" value={ads.extensionCompleted} sub={`${ads.extensionUsers} users`} />
+                    <Metric label="Background unlocks" value={ads.awayUnlocks} sub="accounts with a window" />
                     <Metric label="Extension unlocks" value={ads.extensionUnlocks} sub="accounts with a window" />
+                  </div>
+                  <div
+                    className={cn(
+                      "mt-3 flex items-start gap-2 border px-2.5 py-2 text-[10px] leading-relaxed",
+                      config.adsProviderReady
+                        ? "border-up/30 bg-up/[0.04] text-muted-foreground"
+                        : "border-warn/40 bg-warn/[0.05] text-warn",
+                    )}
+                  >
+                    <ShieldCheck className="mt-0.5 size-3.5 shrink-0" />
+                    <span>
+                      {config.adsProviderReady
+                        ? "Provider postback is configured. Only a secret-authenticated Monetag postback grants ad progress."
+                        : "Provider postback is not configured. Verified ads fail closed and cannot grant progress until MONETAG_POSTBACK_SECRET is set."}
+                    </span>
                   </div>
                   <div className="mt-3 space-y-1.5">
                     <p className="label-xs">By provider</p>

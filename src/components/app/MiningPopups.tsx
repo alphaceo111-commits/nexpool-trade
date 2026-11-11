@@ -100,13 +100,16 @@ export function MiningPopupsProvider({ children }: { children: ReactNode }) {
     ? Boolean(mining?.ads.extension.active)
     : Boolean(mining?.ads.away.active);
   const unlockedToday = Boolean(mining?.ads.extension.unlockedToday);
+  const extensionExpired = Boolean(mining?.ads.extension.expiredToday);
   const extensionEligible = Boolean(mining?.ads.extension.eligible);
+  const providerReady = Boolean(mining?.ads.providerReady);
   const remaining = mining?.remainingTodayNex ?? 0;
   const extensionHours = snapshot?.config.extensionHours ?? 5;
   const shownCompleted = active ? required : completed;
   const ctaDisabled =
     Boolean(busy) ||
     active ||
+    !providerReady ||
     (isExtension && (!extensionEligible || unlockedToday));
 
   const title = isExtension ? "DAILY CAP REACHED" : "MINING STARTED";
@@ -129,20 +132,27 @@ export function MiningPopupsProvider({ children }: { children: ReactNode }) {
       : endsAt
         ? `Background mining active · expires ${formatDateTime(endsAt)}.`
         : "The background-mining entitlement is active.";
+  } else if (isExtension && extensionExpired) {
+    statusNote = `The ${extensionHours}-hour session has completed. It earned ${formatNex(mining?.extensionMinedNex ?? 0)} NEX outside the normal cap.`;
   } else if (isExtension && unlockedToday) {
-    statusNote = "The five-hour extension was already unlocked today.";
+    statusNote = `The ${extensionHours}-hour extension was already granted today.`;
+  } else if (!providerReady) {
+    statusNote =
+      "Verified ads are unavailable until Monetag's server confirmation callback is configured. No progress can be granted manually.";
   } else if (isExtension && remaining > 0) {
     statusNote = `Reach the normal daily cap first — ${formatNex(remaining)} NEX remaining.`;
   }
 
   let ctaLabel = isExtension ? `Unlock ${extensionHours} Hours` : `Watch ${required} Ads`;
-  if (busy) ctaLabel = "Waiting for verified ad";
+  if (busy) ctaLabel = "Waiting for provider confirmation";
   else if (active) {
     ctaLabel = isExtension
       ? `${extensionHours}-hour extension active`
       : "Background mining active";
-  } else if (isExtension && unlockedToday) ctaLabel = "Already unlocked today";
+  } else if (isExtension && extensionExpired) ctaLabel = "Session completed today";
+  else if (isExtension && unlockedToday) ctaLabel = "Already granted today";
   else if (isExtension && !extensionEligible) ctaLabel = "Reach the daily cap first";
+  else if (!providerReady) ctaLabel = "Verification unavailable";
 
   const Icon = isExtension ? Megaphone : Plane;
   const contextValue = useMemo(() => ({ openMiningPopup }), [openMiningPopup]);
@@ -150,6 +160,12 @@ export function MiningPopupsProvider({ children }: { children: ReactNode }) {
   const runAd = async () => {
     if (!open || ctaDisabled) return;
     setNotice(null);
+    if (!providerReady) {
+      setNotice(
+        "Monetag server verification is not configured, so this unlock is unavailable. Opening or clicking an ad cannot grant progress.",
+      );
+      return;
+    }
     const result = await watchAd(open);
     setNotice(result.message);
   };
@@ -236,7 +252,8 @@ export function MiningPopupsProvider({ children }: { children: ReactNode }) {
                 <p className="text-[9.5px] leading-relaxed text-muted-foreground">
                   {isExtension
                     ? `This is the ${required}-ad cap extension. It unlocks only the extra ${extensionHours}-hour session and never grants background mining.`
-                    : `This is the ${required}-ad background-mining unlock. It never grants the ${mining?.ads.extension.required ?? 20}-ad cap extension.`}
+                    : `This is the ${required}-ad background-mining unlock. It never grants the ${mining?.ads.extension.required ?? 20}-ad cap extension.`}{" "}
+                  Only a Monetag postback authenticated by the backend counts.
                 </p>
 
                 <div className="flex items-center justify-between border-t border-border/70 pt-2.5">

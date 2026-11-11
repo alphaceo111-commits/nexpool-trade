@@ -26,11 +26,11 @@ import { cn } from "@/lib/utils";
 const FAQ = [
   {
     q: "How does mining actually accrue?",
-    a: "Mining accrues only while the Mini App is open and sending presence heartbeats. The backend credits the elapsed session against your effective rate, enforces the 0.000006000 NEX normal daily cap, and writes the confirmed ledger total. Leaving stops accrual within 90 seconds unless you have unlocked away mining with 10 verified ads. The ledger is authoritative.",
+    a: "Normal mining accrues on server time. While the Mini App is open, presence heartbeats confirm the session. With background mining unlocked, the backend also reconciles the absence from the last server credit up to the entitlement expiry. It enforces the 0.000006000 NEX normal daily cap and writes the confirmed ledger total. The ledger is authoritative.",
   },
   {
     q: "How do the verified ad unlocks work?",
-    a: "Away mining is one entitlement: 10 completed Monetag reward views unlock the configured permission window. The 5-hour extension is a separate entitlement: after the normal cap is reached, 20 completed Monetag reward views unlock a separate extension bucket. Ad opens and clicks never count; only the Monetag SDK's backend-confirmed completed-view callback can consume a server-issued challenge.",
+    a: "Background mining is one entitlement: 10 verified Monetag views unlock the configured window. The 5-hour extension is a separate entitlement: after the normal cap is reached, 20 separate verified views unlock the extension bucket. Ad opens and clicks never count. Each server-issued challenge needs a secret-authenticated Monetag postback with a valued event; a forged or replayed client completion cannot move progress.",
   },
   {
     q: "Why hasn't my referral counted?",
@@ -61,7 +61,7 @@ const FAQ = [
 const RULES = [
   "Rewards are credited only after backend verification; nothing is simulated.",
   "Mining uses server time and stops at the 0.000006000 NEX normal daily cap.",
-  "Away mining requires 10 verified ads; the extra 5 hours requires 20 separate verified ads.",
+  "Background mining requires 10 verified ads; the extra 5 hours requires 20 separate verified ads.",
   "Referral and task bonuses can never push the total rate above 2× the base rate.",
   "Withdrawals reserve funds atomically and are paid only after the operator reconciles treasury and compliance.",
   "Self-referrals, duplicate accounts and forged verification callbacks are rejected and audited.",

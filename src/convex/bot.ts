@@ -669,7 +669,7 @@ function buildUserReply(
         "",
         "Earned today:",
         `${formatNex(account.todayNex)} / ${formatNex(account.dailyCapNex)} NEX normal · ${formatNex(account.extensionNex)} NEX extension`,
-        account.awayMiningActive ? "Away mining: permission active" : "Away mining: locked (10 verified ads)",
+        account.awayMiningActive ? "Background mining: permission active" : "Background mining: locked (10 verified ads)",
         "",
         account.restricted
           ? "This account is restricted. No NEX accrues until support clears it."
@@ -679,7 +679,7 @@ function buildUserReply(
               ? "The 5-hour extension is live. Extension earnings are recorded separately and do not raise the normal cap."
               : capReached
                 ? `Daily cap reached. Watch ${EXTENSION_ADS_REQUIRED} verified ads in Mining to unlock another ${account.extensionHours} hours, or wait for 00:00 UTC.`
-                : "Accrual runs only while the NEXPOOL Mini App is open and heartbeating. Leaving stops the session within 60 seconds unless away mining was unlocked with 10 verified ads. Open /app and tap Start mining.",
+                : "Normal accrual runs while the NEXPOOL Mini App is open and heartbeating. Background mining unlocked with 10 verified ads continues on server time while the app is closed. Open /app and tap Start mining.",
       ].join("\n");
       break;
     }
@@ -1198,9 +1198,9 @@ async function buildAdminMiningSettings(
       `Mining: ${config.miningEnabled ? "enabled" : "paused"}`,
       `Base rate: ${formatNex(config.baseRateNexPerHour)} NEX/h`,
       `Daily cap: ${formatNex(config.dailyLimitNex)} NEX / UTC day`,
-      `Away mining: ${config.awayMiningHours}h after 10 verified ads`,
+      `Background mining: ${config.awayMiningHours}h after 10 verified ads`,
       `Cap extension: ${config.extensionHours}h after 20 verified ads`,
-      `Rewarded ads: Monetag SDK · postback ${process.env.MONETAG_POSTBACK_SECRET ? "configured" : "optional / not set"}`,
+      `Rewarded ads: Monetag SDK · server postback ${process.env.MONETAG_POSTBACK_SECRET ? "configured" : "REQUIRED but not set"}`,
       `Referral bonus: ${formatNex(config.referralBonusNexPerHour)} NEX/h · cap ${config.referralBonusCap}`,
       `Referral requirement: ${config.referralTaskTarget} tasks · ${config.qualifiedReferralTarget} qualified`,
       "",

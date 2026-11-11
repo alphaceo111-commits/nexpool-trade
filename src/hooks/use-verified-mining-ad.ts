@@ -7,13 +7,19 @@ import { showVerifiedRewardedAd } from "@/lib/monetag";
 export type MiningAdPurpose = "away" | "extension";
 
 export type VerifiedMiningAdResult = {
-  status: "granted" | "recorded" | "rejected" | "already" | "failed";
+  status: "granted" | "recorded" | "pending" | "rejected" | "already" | "failed";
   message: string;
 };
 
+const PROVIDER_POLL_DELAYS_MS = [1_500, 2_500, 3_500, 4_500];
+
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 /**
  * Requests a purpose-specific server challenge, opens the Monetag rewarded
- * view, and sends the provider's confirmed completion back for validation.
+ * view, then polls the backend for the provider's authenticated postback.
  * Nothing here credits NEX or advances an entitlement on its own.
  */
 export function useVerifiedMiningAd(extensionHours: number) {
@@ -42,7 +48,7 @@ export function useVerifiedMiningAd(extensionHours: number) {
         return { status: "failed", message: ad.reason };
       }
 
-      const confirmation = await confirmMiningAd({
+      let confirmation = await confirmMiningAd({
         challengeId: challenge.challengeId,
         ymid: challenge.ymid,
         rewardEventType: ad.result.reward_event_type ?? "valued",
@@ -50,9 +56,30 @@ export function useVerifiedMiningAd(extensionHours: number) {
         estimatedPriceUsd: ad.result.estimated_price,
       });
 
+      // The provider's server postback is authoritative and can trail the SDK
+      // callback by a few seconds. Poll the same challenge; repeat calls are
+      // idempotent and can never apply progress twice.
+      for (const delay of PROVIDER_POLL_DELAYS_MS) {
+        if (confirmation.status !== "pending") break;
+        await wait(delay);
+        confirmation = await confirmMiningAd({
+          challengeId: challenge.challengeId,
+          ymid: challenge.ymid,
+          rewardEventType: ad.result.reward_event_type ?? "valued",
+          eventType: ad.result.event_type,
+          estimatedPriceUsd: ad.result.estimated_price,
+        });
+      }
+
       if (confirmation.status === "rejected") {
         toast.error(confirmation.message);
         return { status: "rejected", message: confirmation.message };
+      }
+      if (confirmation.status === "pending") {
+        const message =
+          "Monetag has not sent its server confirmation yet. This view will count automatically if the provider confirms it; nothing was granted manually.";
+        toast.info("Waiting for provider confirmation.");
+        return { status: "pending", message };
       }
       if (confirmation.status === "already") {
         const message = "This Monetag view was already counted.";
@@ -63,11 +90,11 @@ export function useVerifiedMiningAd(extensionHours: number) {
       if (confirmation.status === "granted") {
         const message =
           purpose === "away"
-            ? "Away mining unlocked. Normal mining now continues on server time while the app is closed."
+            ? "Background mining unlocked. Normal mining now continues on server time while the app is closed."
             : `${extensionHours}-hour extension unlocked. Extension NEX is recorded separately from the normal daily cap.`;
         toast.success(
           purpose === "away"
-            ? "Away mining unlocked."
+            ? "Background mining unlocked."
             : `${extensionHours}-hour extension unlocked.`,
         );
         return { status: "granted", message };
