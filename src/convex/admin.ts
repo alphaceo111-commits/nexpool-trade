@@ -10,8 +10,10 @@ import {
   notifyUser,
   requireAdmin,
   resolveAdminAccess,
+  resolveTelegramId,
   roundNex,
 } from "./engine";
+import { isTelegramAdmin } from "./auth/telegram";
 
 const taskCategory = v.union(
   v.literal("advertisement"),
@@ -344,6 +346,258 @@ export const updateUser = mutation({
       `${profile.nexId}: ${JSON.stringify(patch)}`,
     );
     return { updated: true };
+  },
+});
+
+/**
+ * Permanently removes a NEXPOOL account while keeping the authenticated
+ * Telegram/email identity. The next app launch creates a brand-new NEX ID with
+ * a clean balance and history. Financial/audit evidence is retained in the
+ * operator audit log, never in the deleted user's live account.
+ */
+export const deleteUser = mutation({
+  args: {
+    profileId: v.id("profiles"),
+    confirmNexId: v.string(),
+    reason: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireAdmin(ctx);
+    const profile = await ctx.db.get(args.profileId);
+    if (!profile) throw new Error("Account not found.");
+    if (args.confirmNexId.trim() !== profile.nexId) {
+      throw new Error(
+        `The confirmation code does not match ${profile.nexId}. Type the NEX ID exactly to delete this account.`,
+      );
+    }
+    if (profile.userId === actor.userId) {
+      throw new Error("You cannot delete your own operator account.");
+    }
+    const config = await loadConfig(ctx);
+    if (config.ownerUserId === profile.userId) {
+      throw new Error("The configured operator owner cannot be deleted.");
+    }
+    const targetTelegramId = await resolveTelegramId(
+      ctx,
+      profile.userId,
+      profile,
+    );
+    if (isTelegramAdmin(targetTelegramId)) {
+      throw new Error(
+        "This Telegram account is an environment-configured administrator. Remove it from TELEGRAM_ADMIN_IDS before deleting the NEX account.",
+      );
+    }
+
+    const balance = await ctx.db
+      .query("balances")
+      .withIndex("by_user", (q) => q.eq("userId", profile.userId))
+      .first();
+    const withdrawals = await ctx.db
+      .query("withdrawals")
+      .withIndex("by_user_requestedAt", (q) =>
+        q.eq("userId", profile.userId),
+      )
+      .collect();
+    const pendingWithdrawals = withdrawals.filter(
+      (row) => row.status === "requested" || row.status === "reviewing",
+    );
+    if (pendingWithdrawals.length > 0 || (balance?.reservedNex ?? 0) > 0) {
+      throw new Error(
+        "This account has a pending or reserved withdrawal. Decide or cancel that payout before deleting the account.",
+      );
+    }
+
+    const [
+      miningDays,
+      miningEntries,
+      challenges,
+      adEvents,
+      extensionSessions,
+      ledgerRows,
+      completions,
+      deposits,
+      notifications,
+      levelClaims,
+      xpEvents,
+      referralsAsInviter,
+      referralsAsInvitee,
+      referralsByTelegram,
+      inviteeProfiles,
+    ] = await Promise.all([
+      ctx.db
+        .query("miningDays")
+        .withIndex("by_user_day", (q) => q.eq("userId", profile.userId))
+        .collect(),
+      ctx.db
+        .query("miningEntries")
+        .withIndex("by_user_createdAt", (q) => q.eq("userId", profile.userId))
+        .collect(),
+      ctx.db
+        .query("miningAdChallenges")
+        .withIndex("by_user_status_createdAt", (q) =>
+          q.eq("userId", profile.userId),
+        )
+        .collect(),
+      ctx.db
+        .query("adVerificationEvents")
+        .withIndex("by_user_createdAt", (q) => q.eq("userId", profile.userId))
+        .collect(),
+      ctx.db
+        .query("miningExtensionSessions")
+        .withIndex("by_user_startedAt", (q) => q.eq("userId", profile.userId))
+        .collect(),
+      ctx.db
+        .query("ledger")
+        .withIndex("by_user_createdAt", (q) => q.eq("userId", profile.userId))
+        .collect(),
+      ctx.db
+        .query("taskCompletions")
+        .withIndex("by_user", (q) => q.eq("userId", profile.userId))
+        .collect(),
+      ctx.db
+        .query("deposits")
+        .withIndex("by_user_createdAt", (q) => q.eq("userId", profile.userId))
+        .collect(),
+      ctx.db
+        .query("notifications")
+        .withIndex("by_user_createdAt", (q) => q.eq("userId", profile.userId))
+        .collect(),
+      ctx.db
+        .query("levelClaims")
+        .withIndex("by_user", (q) => q.eq("userId", profile.userId))
+        .collect(),
+      ctx.db
+        .query("xpEvents")
+        .withIndex("by_user_createdAt", (q) => q.eq("userId", profile.userId))
+        .collect(),
+      ctx.db
+        .query("referrals")
+        .withIndex("by_inviter_createdAt", (q) =>
+          q.eq("inviterProfileId", profile._id),
+        )
+        .collect(),
+      ctx.db
+        .query("referrals")
+        .withIndex("by_inviteeProfile", (q) =>
+          q.eq("inviteeProfileId", profile._id),
+        )
+        .collect(),
+      profile.telegramId
+        ? ctx.db
+            .query("referrals")
+            .withIndex("by_inviteeTelegramId", (q) =>
+              q.eq("inviteeTelegramId", profile.telegramId!),
+            )
+            .collect()
+        : Promise.resolve([]),
+      ctx.db
+        .query("profiles")
+        .withIndex("by_referredBy", (q) => q.eq("referredBy", profile._id))
+        .collect(),
+    ]);
+
+    const pendingDeposits = deposits.filter(
+      (row) => row.status === "pending" && row.expiresAt > Date.now(),
+    );
+    if (pendingDeposits.length > 0) {
+      throw new Error(
+        "This account has a pending TON deposit quote. Wait for it to confirm or expire before deleting the account.",
+      );
+    }
+
+    const referralRows = new Map(
+      [...referralsAsInviter, ...referralsAsInvitee, ...referralsByTelegram].map(
+        (row) => [String(row._id), row],
+      ),
+    );
+    const totalRows =
+      miningDays.length +
+      miningEntries.length +
+      challenges.length +
+      adEvents.length +
+      extensionSessions.length +
+      ledgerRows.length +
+      completions.length +
+      withdrawals.length +
+      deposits.length +
+      notifications.length +
+      levelClaims.length +
+      xpEvents.length +
+      referralRows.size +
+      inviteeProfiles.length +
+      3; // balance, profile, audit
+    if (totalRows > 4_000) {
+      throw new Error(
+        "This account has too much live history to delete in one transaction. Restrict it and contact the backend operator to purge it in batches.",
+      );
+    }
+
+    const reason = args.reason?.trim().slice(0, 300);
+    if (profile.telegramId) {
+      await ctx.scheduler.runAfter(0, internal.telegram.push, {
+        chatId: profile.telegramId,
+        text: "NEXPOOL · Account removed\nAn operator deleted your NEXPOOL account. Your Telegram sign-in was kept. Open the Mini App again to create a fresh NEX ID.",
+      });
+    }
+
+    // Break the invitation links first so no invitee is left pointing at a
+    // deleted profile. Their future earnings do not depend on the inviter.
+    for (const invitee of inviteeProfiles) {
+      await ctx.db.patch(invitee._id, {
+        referredBy: undefined,
+        referredAt: undefined,
+        referralQualifiedAt: undefined,
+      });
+    }
+    for (const row of referralRows.values()) {
+      await ctx.db.delete(row._id);
+    }
+    for (const row of miningDays) await ctx.db.delete(row._id);
+    for (const row of miningEntries) await ctx.db.delete(row._id);
+    for (const row of challenges) await ctx.db.delete(row._id);
+    for (const row of adEvents) await ctx.db.delete(row._id);
+    for (const row of extensionSessions) await ctx.db.delete(row._id);
+    for (const row of ledgerRows) await ctx.db.delete(row._id);
+    for (const row of completions) await ctx.db.delete(row._id);
+    for (const row of withdrawals) await ctx.db.delete(row._id);
+    for (const row of deposits) await ctx.db.delete(row._id);
+    for (const row of notifications) await ctx.db.delete(row._id);
+    for (const row of levelClaims) await ctx.db.delete(row._id);
+    for (const row of xpEvents) await ctx.db.delete(row._id);
+    if (balance) await ctx.db.delete(balance._id);
+
+    const accountUser = await ctx.db.get(profile.userId);
+    if (accountUser) {
+      await ctx.db.patch(accountUser._id, {
+        role: accountUser.role === "admin" ? "user" : accountUser.role,
+      });
+    }
+
+    await ctx.db.delete(profile._id);
+    await audit(
+      ctx,
+      actor,
+      "user.delete",
+      `${profile.nexId} (telegram ${profile.telegramId ?? "not linked"}) deleted · balance ${roundNex(
+        balance?.availableNex ?? 0,
+      )} NEX · ${ledgerRows.length} ledger rows · ${referralRows.size} referral rows · ${inviteeProfiles.length} invitee links cleared${
+        reason ? ` · reason: ${reason}` : ""
+      }`,
+    );
+
+    return {
+      deleted: true as const,
+      nexId: profile.nexId,
+      name: profile.displayName,
+      cleared: {
+        ledger: ledgerRows.length,
+        taskCompletions: completions.length,
+        withdrawals: withdrawals.length,
+        deposits: deposits.length,
+        referrals: referralRows.size,
+        invitees: inviteeProfiles.length,
+      },
+    };
   },
 });
 

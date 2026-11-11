@@ -38,6 +38,7 @@ import {
   Send,
   ShieldAlert,
   ShieldCheck,
+  Trash2,
   Users,
   Wallet,
 } from "lucide-react";
@@ -1334,6 +1335,7 @@ function TaskList({ tasks }: { tasks: AdminTasks["tasks"] }) {
 function UserTable() {
   const users = useQuery(api.admin.users);
   const updateUser = useMutation(api.admin.updateUser);
+  const deleteUser = useMutation(api.admin.deleteUser);
   const [busy, setBusy] = useState<string | null>(null);
 
   if (!users) return <LoadingBlock rows={4} />;
@@ -1357,6 +1359,34 @@ function UserTable() {
     }
   };
 
+  const remove = async (user: (typeof users)[number]) => {
+    const typed = window.prompt(
+      `PERMANENT DELETE\n\nThis removes ${user.nexId}, its balance, mining and task history, referrals, withdrawals and deposits. The Telegram sign-in is kept, so the same person can create a fresh NEX account on next launch.\n\nType ${user.nexId} to confirm:`,
+    );
+    if (typed === null) return;
+    if (typed.trim() !== user.nexId) {
+      toast.error("The NEX ID did not match. Nothing was deleted.");
+      return;
+    }
+    const reason =
+      window.prompt("Optional reason for deleting this account:") ?? "";
+    setBusy(user.profileId);
+    try {
+      const result = await deleteUser({
+        profileId: user.profileId as never,
+        confirmNexId: typed.trim(),
+        reason: reason.trim() || undefined,
+      });
+      toast.success(
+        `${result.nexId} deleted. The user can reopen NEXPOOL to create a new account.`,
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Delete failed.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return (
     <div className="space-y-3">
       <div>
@@ -1367,6 +1397,8 @@ function UserTable() {
         <p className="mt-1 text-[11px] text-muted-foreground">
           Restricting an account freezes mining, task submission and withdrawals
           immediately. Compliance clearance is required before any payout.
+          Deleting an account keeps the Telegram sign-in but permanently removes
+          the NEX ID, balance and history so a fresh account can be created.
         </p>
       </div>
 
@@ -1480,6 +1512,20 @@ function UserTable() {
                     <Ban className="size-3" /> Restrict
                   </Button>
                 )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 gap-1 font-mono text-[8.5px] uppercase tracking-[0.06em] text-down"
+                  disabled={busy === user.profileId}
+                  onClick={() => void remove(user)}
+                >
+                  {busy === user.profileId ? (
+                    <Spinner />
+                  ) : (
+                    <Trash2 className="size-3" />
+                  )}
+                  Delete account
+                </Button>
               </div>
             </div>
           ))}
