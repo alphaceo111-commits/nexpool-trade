@@ -1347,11 +1347,13 @@ function RecoveryDesk() {
     submitted ?? "skip",
   );
   const merge = useMutation(api.recovery.mergeDuplicateAccount);
+  const retire = useMutation(api.recoveryRetire.retireDuplicateAccount);
   const [confirmPrimary, setConfirmPrimary] = useState("");
   const [confirmDuplicate, setConfirmDuplicate] = useState("");
   const [ownershipConfirmed, setOwnershipConfirmed] = useState(false);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
+  const [retiring, setRetiring] = useState(false);
 
   const runPreview = () => {
     const primary = primaryNexId.trim();
@@ -1421,6 +1423,59 @@ function RecoveryDesk() {
     }
   };
 
+  const performRetire = async () => {
+    if (!submitted || !preview?.ok) return;
+    if (
+      confirmPrimary.trim() !== submitted.primaryNexId ||
+      confirmDuplicate.trim() !== submitted.duplicateNexId
+    ) {
+      toast.error("Type both full NEX IDs exactly.");
+      return;
+    }
+    if (!ownershipConfirmed) {
+      toast.error(
+        "Confirm that both accounts belong to the same person before retiring the duplicate.",
+      );
+      return;
+    }
+    const confirmed = window.confirm(
+      `RETIRE ${submitted.duplicateNexId} WITHOUT TRANSFERRING ITS DATA?\n\n` +
+        `The duplicate is archived, its verified Telegram login moves to ${submitted.primaryNexId}, and the duplicate is deleted. ` +
+        `No duplicate balance, mining, task, referral, deposit or withdrawal data is added to ${submitted.primaryNexId}. ` +
+        `This cannot be undone from the dashboard.`,
+    );
+    if (!confirmed) return;
+    setRetiring(true);
+    try {
+      const result = await retire({
+        primaryNexId: submitted.primaryNexId,
+        duplicateNexId: submitted.duplicateNexId,
+        confirmPrimaryNexId: confirmPrimary.trim(),
+        confirmDuplicateNexId: confirmDuplicate.trim(),
+        ownershipConfirmed: true,
+        reason: reason.trim() || undefined,
+      });
+      if (result.alreadyRetired) {
+        toast.success("This duplicate was already retired; nothing was changed.");
+      } else {
+        toast.success(
+          `${result.duplicateNexId} retired with zero transfer. ${result.primaryNexId} balance remains ${formatNex(result.primaryBalanceNex)} NEX.`,
+        );
+      }
+      setSubmitted(null);
+      setConfirmPrimary("");
+      setConfirmDuplicate("");
+      setOwnershipConfirmed(false);
+      setReason("");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Retirement failed.",
+      );
+    } finally {
+      setRetiring(false);
+    }
+  };
+
   return (
     <div className="space-y-3">
       <div>
@@ -1459,7 +1514,11 @@ function RecoveryDesk() {
           </label>
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <Button size="sm" onClick={runPreview} disabled={busy}>
+          <Button
+            size="sm"
+            onClick={runPreview}
+            disabled={busy || retiring}
+          >
             <ShieldCheck className="size-3.5" />
             Run forensic preview
           </Button>
@@ -1630,6 +1689,7 @@ function RecoveryDesk() {
                 variant="destructive"
                 disabled={
                   busy ||
+                  retiring ||
                   !preview.mergeReady ||
                   !ownershipConfirmed ||
                   confirmPrimary.trim() !== submitted.primaryNexId ||
@@ -1639,6 +1699,22 @@ function RecoveryDesk() {
               >
                 {busy ? <Spinner /> : <GitMerge className="size-3.5" />}
                 Merge duplicate into primary
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 border-down/40 text-down"
+                disabled={
+                  busy ||
+                  retiring ||
+                  !ownershipConfirmed ||
+                  confirmPrimary.trim() !== submitted.primaryNexId ||
+                  confirmDuplicate.trim() !== submitted.duplicateNexId
+                }
+                onClick={performRetire}
+              >
+                {retiring ? <Spinner /> : <Trash2 className="size-3.5" />}
+                Retire duplicate only · zero transfer
               </Button>
               <span className="font-mono text-[9px] text-muted-foreground">
                 Database transaction · archive + audit · idempotent retry

@@ -23,7 +23,7 @@ function sumNex(rows: Array<{ amountNex: number }>) {
 
 type DbCtx = QueryCtx | MutationCtx;
 
-async function loadAccount(ctx: DbCtx, profile: Doc<"profiles">) {
+export async function loadAccount(ctx: DbCtx, profile: Doc<"profiles">) {
   const [
     user,
     profilesForUser,
@@ -392,6 +392,40 @@ async function evaluate(
   };
 }
 
+export function buildArchive(duplicate: AccountBundle) {
+  return {
+    profileSnapshot: JSON.stringify({
+      profile: duplicate.profile,
+      user: duplicate.user,
+      authProviders: duplicate.authAccounts.map((row) => row.provider),
+      notifications: duplicate.notifications,
+    }),
+    balanceSnapshot: JSON.stringify(duplicate.balance),
+    ledgerSnapshot: JSON.stringify(duplicate.ledger),
+    miningSnapshot: JSON.stringify({
+      miningDays: duplicate.miningDays,
+      miningEntries: duplicate.miningEntries,
+      extensionSessions: duplicate.extensionSessions,
+      challenges: duplicate.challenges,
+      adEvents: duplicate.adEvents,
+    }),
+    taskSnapshot: JSON.stringify({
+      completions: duplicate.completions,
+      levelClaims: duplicate.levelClaims,
+      xpEvents: duplicate.xpEvents,
+    }),
+    referralSnapshot: JSON.stringify({
+      asInviter: duplicate.referralsAsInviter,
+      asInvitee: duplicate.referralsAsInvitee,
+      byTelegram: duplicate.referralsByTelegram,
+    }),
+    walletSnapshot: JSON.stringify({
+      deposits: duplicate.deposits,
+      withdrawals: duplicate.withdrawals,
+    }),
+  };
+}
+
 function summarize(bundle: AccountBundle) {
   const verified = bundle.completions.filter(
     (row) => row.status === "verified",
@@ -664,35 +698,7 @@ export const mergeDuplicateAccount = mutation({
 
     const now = Date.now();
     const telegramId = duplicate.profile.telegramId!;
-    const archive = {
-      profileSnapshot: JSON.stringify({
-        profile: duplicate.profile,
-        user: duplicate.user,
-      }),
-      balanceSnapshot: JSON.stringify(duplicate.balance),
-      ledgerSnapshot: JSON.stringify(duplicate.ledger),
-      miningSnapshot: JSON.stringify({
-        miningDays: duplicate.miningDays,
-        miningEntries: duplicate.miningEntries,
-        extensionSessions: duplicate.extensionSessions,
-        challenges: duplicate.challenges,
-        adEvents: duplicate.adEvents,
-      }),
-      taskSnapshot: JSON.stringify({
-        completions: duplicate.completions,
-        levelClaims: duplicate.levelClaims,
-        xpEvents: duplicate.xpEvents,
-      }),
-      referralSnapshot: JSON.stringify({
-        asInviter: duplicate.referralsAsInviter,
-        asInvitee: duplicate.referralsAsInvitee,
-        byTelegram: duplicate.referralsByTelegram,
-      }),
-      walletSnapshot: JSON.stringify({
-        deposits: duplicate.deposits,
-        withdrawals: duplicate.withdrawals,
-      }),
-    };
+    const archive = buildArchive(duplicate);
     for (const value of Object.values(archive)) {
       if (value.length > 900_000) {
         throw new Error("The duplicate has too much archived data for one atomic merge.");
