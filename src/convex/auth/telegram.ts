@@ -1,5 +1,15 @@
 import { ConvexCredentials } from "@convex-dev/auth/providers/ConvexCredentials";
 import { createAccount } from "@convex-dev/auth/server";
+import { makeFunctionReference } from "convex/server";
+import type { Id } from "../_generated/dataModel";
+
+// A direct function reference avoids a circular type inference through the
+// generated API while auth providers are being initialised.
+const resolveTelegramSignIn = makeFunctionReference<
+  "mutation",
+  { telegramId: string; isAdmin: boolean },
+  { userId: Id<"users"> | null; linkedLegacy: boolean }
+>("telegram:resolveTelegramSignIn");
 
 export type TelegramIdentity = {
   telegramId: string;
@@ -178,6 +188,19 @@ export const telegramAuth = ConvexCredentials({
       [identity.firstName, identity.lastName].filter(Boolean).join(" ").trim() ||
       identity.username ||
       "NEX miner";
+
+    // Resolve a pre-existing NEXPOOL profile by the verified numeric ID
+    // before Convex Auth is allowed to create a user. This is the critical
+    // legacy-account path: an anonymous profile may already carry this
+    // telegramId without an authAccounts row, and signing in must attach that
+    // identity instead of minting a second NEX account.
+    const resolved = await ctx.runMutation(resolveTelegramSignIn, {
+      telegramId: identity.telegramId,
+      isAdmin: isOwner,
+    });
+    if (resolved.userId) {
+      return { userId: resolved.userId };
+    }
 
     // Idempotent: an existing telegramId resolves to its existing user.
     const { user } = await createAccount(ctx, {

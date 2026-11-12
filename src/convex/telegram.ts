@@ -6,9 +6,164 @@ import {
   internalAction,
   internalMutation,
 } from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import { telegramAdminIds, verifyTelegramInitData } from "./auth/telegram";
 import { ensureAccount } from "./engine";
 import { attachReferral, syncReferralProgress } from "./referralEngine";
+
+async function claimTelegramIdentity(
+  ctx: MutationCtx,
+  telegramId: string,
+  profile: { _id: Id<"profiles">; userId: Id<"users"> },
+  now: number,
+) {
+  const claim = await ctx.db
+    .query("telegramIdentities")
+    .withIndex("by_telegramId", (q) => q.eq("telegramId", telegramId))
+    .first();
+  if (claim) {
+    if (claim.profileId !== profile._id || claim.userId !== profile.userId) {
+      throw new Error(
+        "This Telegram account is already linked to a different NEXPOOL account. Account recovery is required.",
+      );
+    }
+    await ctx.db.patch(claim._id, {
+      verifiedAt: now,
+      updatedAt: now,
+    });
+    return claim;
+  }
+  const claimId = await ctx.db.insert("telegramIdentities", {
+    telegramId,
+    userId: profile.userId,
+    profileId: profile._id,
+    verifiedAt: now,
+    createdAt: now,
+    updatedAt: now,
+  });
+  return (await ctx.db.get(claimId))!;
+}
+
+/**
+ * Resolves the canonical NEXPOOL user for a verified Telegram numeric ID
+ * before Convex Auth creates anything. This runs inside the auth provider's
+ * action through an internal mutation, so both the auth account and the
+ * NEXPOOL profile are reconciled atomically.
+ */
+export const resolveTelegramSignIn = internalMutation({
+  args: {
+    telegramId: v.string(),
+    isAdmin: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const claim = await ctx.db
+      .query("telegramIdentities")
+      .withIndex("by_telegramId", (q) => q.eq("telegramId", args.telegramId))
+      .first();
+    const profiles = await ctx.db
+      .query("profiles")
+      .withIndex("by_telegramId", (q) =>
+        q.eq("telegramId", args.telegramId),
+      )
+      .collect();
+    if (profiles.length > 1) {
+      throw new Error(
+        "Multiple NEXPOOL accounts claim this Telegram identity. Open account recovery instead of signing in.",
+      );
+    }
+
+    const authAccount = await ctx.db
+      .query("authAccounts")
+      .withIndex("providerAndAccountId", (q) =>
+        q.eq("provider", "telegram").eq("providerAccountId", args.telegramId),
+      )
+      .first();
+
+    let profile = profiles[0] ?? null;
+    if (!profile && claim) {
+      const claimedProfile = await ctx.db.get(claim.profileId);
+      if (!claimedProfile) {
+        throw new Error(
+          "The canonical Telegram claim points at a missing profile. Account recovery is required.",
+        );
+      }
+      profile = claimedProfile;
+    }
+    if (claim && profile && claim.profileId !== profile._id) {
+      throw new Error(
+        "The Telegram identity registry conflicts with this profile. Account recovery is required.",
+      );
+    }
+    if (claim && authAccount && claim.userId !== authAccount.userId) {
+      throw new Error(
+        "The Telegram identity registry conflicts with the auth account. Account recovery is required.",
+      );
+    }
+
+    if (profile) {
+      if (authAccount && authAccount.userId !== profile.userId) {
+        throw new Error(
+          "This Telegram account is attached to a different NEXPOOL user. Account recovery is required.",
+        );
+      }
+      if (!profile.telegramVerifiedAt && !authAccount) {
+        throw new Error(
+          "This profile's Telegram identity was never verified. Account recovery is required.",
+        );
+      }
+      if (!authAccount) {
+        await ctx.db.insert("authAccounts", {
+          userId: profile.userId,
+          provider: "telegram",
+          providerAccountId: args.telegramId,
+        });
+      }
+      const user = await ctx.db.get(profile.userId);
+      if (!user) {
+        throw new Error(
+          "This NEXPOOL profile has no auth user. Account recovery is required.",
+        );
+      }
+      if (user.isAnonymous) {
+        await ctx.db.patch(user._id, { isAnonymous: false });
+      }
+      if (args.isAdmin && user?.role !== "admin") {
+        await ctx.db.patch(profile.userId, { role: "admin" });
+      }
+      await claimTelegramIdentity(ctx, args.telegramId, profile, now);
+      if (!profile.telegramId || !profile.telegramVerifiedAt) {
+        await ctx.db.patch(profile._id, {
+          telegramId: args.telegramId,
+          telegramVerifiedAt: now,
+        });
+      }
+      return {
+        userId: profile.userId,
+        linkedLegacy: !authAccount,
+      };
+    }
+
+    if (authAccount) {
+      const user = await ctx.db.get(authAccount.userId);
+      if (!user) {
+        throw new Error(
+          "The Telegram auth account has no user row. Account recovery is required.",
+        );
+      }
+      if (user.isAnonymous) {
+        await ctx.db.patch(user._id, { isAnonymous: false });
+      }
+      if (args.isAdmin && user?.role !== "admin") {
+        await ctx.db.patch(authAccount.userId, { role: "admin" });
+      }
+      return { userId: authAccount.userId, linkedLegacy: false };
+    }
+
+    return { userId: null, linkedLegacy: false };
+  },
+});
 
 /**
  * Links the Telegram identity to the signed-in account. Sign-in itself happens
@@ -68,6 +223,43 @@ export const attachIdentity = internalMutation({
     startParam: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Sign in first.");
+
+    // Check conflicts BEFORE ensureAccount creates a profile. Otherwise a
+    // stale Telegram sign-in could leave an empty orphan profile behind even
+    // though the identity belongs to a different canonical account.
+    const existingByTelegram = await ctx.db
+      .query("profiles")
+      .withIndex("by_telegramId", (q) => q.eq("telegramId", args.telegramId))
+      .first();
+    const currentProfile = await ctx.db
+      .query("profiles")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .first();
+    if (existingByTelegram && existingByTelegram.userId !== userId) {
+      throw new Error(
+        "This Telegram account is already linked to another NEXPOOL account. Use account recovery instead of creating a new account.",
+      );
+    }
+    if (
+      currentProfile?.telegramId &&
+      currentProfile.telegramId !== args.telegramId
+    ) {
+      throw new Error(
+        "This NEXPOOL account is already linked to a different Telegram ID. Contact the operator to repair the identity.",
+      );
+    }
+    const identityClaim = await ctx.db
+      .query("telegramIdentities")
+      .withIndex("by_telegramId", (q) => q.eq("telegramId", args.telegramId))
+      .first();
+    if (identityClaim && identityClaim.userId !== userId) {
+      throw new Error(
+        "This Telegram account has a canonical claim on a different NEXPOOL user. Account recovery is required.",
+      );
+    }
+
     let { profile } = await ensureAccount(ctx);
 
     const duplicate = await ctx.db
@@ -76,7 +268,7 @@ export const attachIdentity = internalMutation({
       .first();
     if (duplicate && duplicate._id !== profile._id) {
       throw new Error(
-        "This Telegram account is already linked to another NEXPOOL account.",
+        "This Telegram account is already linked to another NEXPOOL account. Use account recovery instead of creating a new account.",
       );
     }
 
@@ -102,6 +294,7 @@ export const attachIdentity = internalMutation({
         providerAccountId: args.telegramId,
       });
     }
+    await claimTelegramIdentity(ctx, args.telegramId, profile, Date.now());
     const authUser = await ctx.db.get(profile.userId);
     if (authUser?.isAnonymous) {
       await ctx.db.patch(profile.userId, { isAnonymous: false });

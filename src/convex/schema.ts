@@ -238,6 +238,22 @@ const schema = defineSchema(
       .index("by_telegramId", ["telegramId"])
       .index("by_lastActiveAt", ["lastActiveAt"]),
 
+    // Canonical Telegram identity claim. The Telegram numeric ID is the
+    // permanent external identity; a profile can have at most one claim and a
+    // claim can point at only one profile. Application-level conflict checks
+    // make this the single source of truth across sign-in and linking.
+    telegramIdentities: defineTable({
+      telegramId: v.string(),
+      userId: v.id("users"),
+      profileId: v.id("profiles"),
+      verifiedAt: v.number(),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("by_telegramId", ["telegramId"])
+      .index("by_profileId", ["profileId"])
+      .index("by_userId", ["userId"]),
+
     // Every Telegram identity the bot has seen, including people who have not
     // opened the Mini App yet. This is what makes "bot starters" reportable
     // without inventing a profile or counting a Mini App visit as a bot start.
@@ -737,6 +753,34 @@ const schema = defineSchema(
     })
       .index("by_command", ["command"])
       .index("by_scope", ["scope"]),
+
+    // Immutable recovery evidence for a canonical account merge. The original
+    // duplicate rows are stored as JSON snapshots before they are transferred
+    // or removed, so a disputed merge can be reconstructed without keeping a
+    // second live profile on the leaderboard.
+    accountMergeArchives: defineTable({
+      primaryProfileId: v.id("profiles"),
+      duplicateProfileId: v.id("profiles"),
+      primaryUserId: v.id("users"),
+      duplicateUserId: v.id("users"),
+      primaryNexId: v.string(),
+      duplicateNexId: v.string(),
+      telegramId: v.optional(v.string()),
+      actorId: v.string(),
+      actorLabel: v.string(),
+      reason: v.optional(v.string()),
+      summary: v.string(),
+      profileSnapshot: v.string(),
+      balanceSnapshot: v.string(),
+      ledgerSnapshot: v.string(),
+      miningSnapshot: v.string(),
+      taskSnapshot: v.string(),
+      referralSnapshot: v.string(),
+      walletSnapshot: v.string(),
+      createdAt: v.number(),
+    })
+      .index("by_duplicateNexId", ["duplicateNexId"])
+      .index("by_primary_createdAt", ["primaryProfileId", "createdAt"]),
 
     // Operator audit trail for every privileged action.
     auditLogs: defineTable({

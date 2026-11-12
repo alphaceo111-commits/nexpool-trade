@@ -31,6 +31,7 @@ import {
   FileText,
   Flag,
   Gauge,
+  GitMerge,
   ListChecks,
   Megaphone,
   Play,
@@ -52,6 +53,7 @@ const TABS = [
   { key: "mining", label: "Economy", icon: Gauge },
   { key: "tasks", label: "Campaigns", icon: ListChecks },
   { key: "users", label: "Users", icon: Users },
+  { key: "recovery", label: "Recovery", icon: GitMerge },
   { key: "withdrawals", label: "Payouts", icon: Wallet },
   { key: "broadcast", label: "Announce", icon: Megaphone },
   { key: "audit", label: "Audit", icon: FileText },
@@ -208,6 +210,7 @@ export default function Admin() {
           {tab === "mining" ? <Economy /> : null}
           {tab === "tasks" ? <Campaigns /> : null}
           {tab === "users" ? <UserTable /> : null}
+          {tab === "recovery" ? <RecoveryDesk /> : null}
           {tab === "withdrawals" ? <PayoutQueue /> : null}
           {tab === "broadcast" ? <Broadcast /> : null}
           {tab === "audit" ? <AuditLog /> : null}
@@ -1329,6 +1332,322 @@ function TaskList({ tasks }: { tasks: AdminTasks["tasks"] }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+function RecoveryDesk() {
+  const [primaryNexId, setPrimaryNexId] = useState("NXP-8VFXVB");
+  const [duplicateNexId, setDuplicateNexId] = useState("NXP-Q5UD78");
+  const [submitted, setSubmitted] = useState<{
+    primaryNexId: string;
+    duplicateNexId: string;
+  } | null>(null);
+  const preview = useQuery(
+    api.recovery.recoveryPreview,
+    submitted ?? "skip",
+  );
+  const merge = useMutation(api.recovery.mergeDuplicateAccount);
+  const [confirmPrimary, setConfirmPrimary] = useState("");
+  const [confirmDuplicate, setConfirmDuplicate] = useState("");
+  const [ownershipConfirmed, setOwnershipConfirmed] = useState(false);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const runPreview = () => {
+    const primary = primaryNexId.trim();
+    const duplicate = duplicateNexId.trim();
+    if (!primary || !duplicate) {
+      toast.error("Enter both NEX IDs.");
+      return;
+    }
+    if (primary === duplicate) {
+      toast.error("Primary and duplicate must be different accounts.");
+      return;
+    }
+    setConfirmPrimary("");
+    setConfirmDuplicate("");
+    setOwnershipConfirmed(false);
+    setSubmitted({ primaryNexId: primary, duplicateNexId: duplicate });
+  };
+
+  const performMerge = async () => {
+    if (!submitted || !preview?.ok || !preview.mergeReady) return;
+    if (
+      confirmPrimary.trim() !== submitted.primaryNexId ||
+      confirmDuplicate.trim() !== submitted.duplicateNexId
+    ) {
+      toast.error("Type both full NEX IDs exactly.");
+      return;
+    }
+    if (!ownershipConfirmed) {
+      toast.error(
+        "Confirm that both accounts belong to the same person before merging.",
+      );
+      return;
+    }
+    const confirmed = window.confirm(
+      `MERGE ${submitted.duplicateNexId} INTO ${submitted.primaryNexId}?\n\n` +
+        "The duplicate profile will be retired and the verified Telegram login will move to the primary. " +
+        "Only ledger entries with unique kind/refId keys are added to the primary balance. " +
+        "The duplicate's complete records are archived first. This cannot be undone from the dashboard.",
+    );
+    if (!confirmed) return;
+    setBusy(true);
+    try {
+      const result = await merge({
+        primaryNexId: submitted.primaryNexId,
+        duplicateNexId: submitted.duplicateNexId,
+        confirmPrimaryNexId: confirmPrimary.trim(),
+        confirmDuplicateNexId: confirmDuplicate.trim(),
+        ownershipConfirmed: true,
+        reason: reason.trim() || undefined,
+      });
+      if (result.alreadyMerged) {
+        toast.success("This duplicate was already merged; nothing was changed.");
+      } else {
+        toast.success(
+          `${result.duplicateNexId} merged into ${result.primaryNexId}. ${formatNex(result.transferred.netNex)} NEX unique ledger value transferred; balance now ${formatNex(result.primaryBalanceNex)} NEX.`,
+        );
+      }
+      setSubmitted(null);
+      setConfirmPrimary("");
+      setConfirmDuplicate("");
+      setOwnershipConfirmed(false);
+      setReason("");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Merge failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <p className="label-xs">Identity repair</p>
+        <h1 className="mt-1 text-lg font-semibold tracking-tight">
+          Account recovery & canonical merge
+        </h1>
+        <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+          Read-only preview first. A merge requires a verified Telegram auth
+          account on the duplicate, exact NEX ID confirmations, an available
+          balance with no pending withdrawals or deposits, and produces an
+          immutable archive plus audit entry. The primary keeps its NEX ID,
+          referral code, display name and lifetime identity.
+        </p>
+      </div>
+
+      <div className="rounded-md border border-border/80 bg-card p-3">
+        <div className="grid gap-2 sm:grid-cols-2">
+          <label className="space-y-1">
+            <span className="label-xs">Primary · preserved</span>
+            <Input
+              value={primaryNexId}
+              onChange={(event) => setPrimaryNexId(event.target.value)}
+              placeholder="NXP-8VFXVB"
+              className="font-mono"
+            />
+          </label>
+          <label className="space-y-1">
+            <span className="label-xs">Duplicate · retired</span>
+            <Input
+              value={duplicateNexId}
+              onChange={(event) => setDuplicateNexId(event.target.value)}
+              placeholder="NXP-Q5UD78"
+              className="font-mono"
+            />
+          </label>
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <Button size="sm" onClick={runPreview} disabled={busy}>
+            <ShieldCheck className="size-3.5" />
+            Run forensic preview
+          </Button>
+          <span className="font-mono text-[9px] text-muted-foreground">
+            No writes until the final merge confirmation.
+          </span>
+        </div>
+      </div>
+
+      {submitted && preview === undefined ? <LoadingBlock rows={3} /> : null}
+
+      {submitted && preview === null ? (
+        <div className="rounded-md border border-border/80 bg-card p-3 text-[11px] text-muted-foreground">
+          Operator access is required to read recovery data.
+        </div>
+      ) : null}
+
+      {submitted && preview?.ok === false ? (
+        <div className="rounded-md border border-down/40 bg-down/5 p-3">
+          <p className="text-[12px] font-medium">Account not found</p>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Missing in this deployment: {preview.missing.join(", ") || "unknown"}.
+            Nothing was changed.
+          </p>
+        </div>
+      ) : null}
+
+      {submitted && preview?.ok ? (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusPill tone={preview.mergeReady ? "up" : "warn"}>
+              {preview.mergeReady ? "Merge ready" : "Blocked"}
+            </StatusPill>
+            <span className="font-mono text-[9px] text-muted-foreground">
+              Verified Telegram owner: {preview.identity?.telegramOwnerNexId ?? "not resolved"}
+            </span>
+          </div>
+
+          <div className="grid gap-2 lg:grid-cols-2">
+            {[preview.primary, preview.duplicate].map((account, index) =>
+              account ? (
+                <div
+                  key={account.nexId}
+                  className={cn(
+                    "rounded-md border bg-card p-3",
+                    index === 0 ? "border-up/30" : "border-border/80",
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-[12px] font-medium">
+                        {account.displayName}
+                      </p>
+                      <p className="font-mono text-[9px] text-muted-foreground">
+                        {account.nexId} · {account.user.role ?? "user"}
+                      </p>
+                    </div>
+                    <StatusPill tone={account.telegramLinked ? "signal" : "warn"}>
+                      {account.telegramLinked ? "TG linked" : "No TG"}
+                    </StatusPill>
+                  </div>
+                  <div className="mt-2 grid grid-cols-3 gap-2">
+                    <Metric label="Available" value={formatNex(account.balance.availableNex)} />
+                    <Metric label="Reserved" value={formatNex(account.balance.reservedNex)} />
+                    <Metric label="Ledger net" value={formatNex(account.ledgerNetNex)} />
+                    <Metric label="Ledger rows" value={account.ledgerCount} />
+                    <Metric label="Mining days" value={account.miningDayCount} />
+                    <Metric label="Tasks" value={account.verifiedTaskCount} />
+                    <Metric label="Referrals" value={account.referralsInvited} />
+                    <Metric label="Deposits" value={account.deposits} />
+                    <Metric label="Withdrawals" value={account.withdrawals} />
+                  </div>
+                  <p className="mt-2 border-t border-border/60 pt-2 font-mono text-[9px] leading-relaxed text-muted-foreground">
+                    Auth: {account.authProviders.join(", ") || "none"} · XP {account.xp} · claimed level {account.claimedLevel} · TG verified{" "}
+                    {account.telegramVerifiedAt
+                      ? formatDateTime(account.telegramVerifiedAt)
+                      : " no"}
+                  </p>
+                </div>
+              ) : null,
+            )}
+          </div>
+
+          <div className="rounded-md border border-border/80 bg-card p-3">
+            <p className="label-xs">Ledger reconciliation</p>
+            <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <Metric
+                label="Unique NEX"
+                value={formatNex(preview.reconciliation?.transferableNex ?? 0)}
+                tone="up"
+              />
+              <Metric
+                label="Mining unique"
+                value={formatNex(preview.reconciliation?.transferableMiningNex ?? 0)}
+              />
+              <Metric
+                label="Task unique"
+                value={formatNex(preview.reconciliation?.transferableTaskNex ?? 0)}
+              />
+              <Metric
+                label="Ref collisions"
+                value={preview.reconciliation?.collidedLedgerRows ?? 0}
+                tone={(preview.reconciliation?.collidedLedgerRows ?? 0) > 0 ? "warn" : undefined}
+              />
+            </div>
+            <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground">
+              Only the unique ledger value above changes the primary balance.
+              Duplicate mining days, tasks, levels, referral rows and wallet
+              entries are reconciled separately; colliding rows are archived,
+              never added twice.
+            </p>
+          </div>
+
+          {preview.blockers.length > 0 ? (
+            <div className="rounded-md border border-down/40 bg-down/5 p-3">
+              <p className="text-[12px] font-medium text-down">Merge blocked</p>
+              <ul className="mt-1.5 list-disc space-y-1 pl-4 text-[11px] text-muted-foreground">
+                {preview.blockers.map((blocker) => (
+                  <li key={blocker}>{blocker}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          <div className="rounded-md border border-border/80 bg-card p-3">
+            <p className="label-xs">Final confirmation</p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              <Input
+                value={confirmPrimary}
+                onChange={(event) => setConfirmPrimary(event.target.value)}
+                placeholder={`Type ${submitted.primaryNexId}`}
+                className="font-mono"
+              />
+              <Input
+                value={confirmDuplicate}
+                onChange={(event) => setConfirmDuplicate(event.target.value)}
+                placeholder={`Type ${submitted.duplicateNexId}`}
+                className="font-mono"
+              />
+            </div>
+            <label className="mt-2 flex items-start gap-2 border border-border/70 p-2 text-[10px] leading-relaxed text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={ownershipConfirmed}
+                onChange={(event) =>
+                  setOwnershipConfirmed(event.target.checked)
+                }
+                className="mt-0.5 size-3.5 accent-primary"
+              />
+              <span>
+                I verified both NEX IDs belong to the same person, that the
+                duplicate owns the verified Telegram identity, and that{" "}
+                <span className="font-medium text-foreground">
+                  {submitted.primaryNexId}
+                </span>{" "}
+                must remain canonical.
+              </span>
+            </label>
+            <Textarea
+              className="mt-2 min-h-16"
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              placeholder="Reason recorded in the audit log (optional)"
+            />
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant="destructive"
+                disabled={
+                  busy ||
+                  !preview.mergeReady ||
+                  !ownershipConfirmed ||
+                  confirmPrimary.trim() !== submitted.primaryNexId ||
+                  confirmDuplicate.trim() !== submitted.duplicateNexId
+                }
+                onClick={performMerge}
+              >
+                {busy ? <Spinner /> : <GitMerge className="size-3.5" />}
+                Merge duplicate into primary
+              </Button>
+              <span className="font-mono text-[9px] text-muted-foreground">
+                Database transaction · archive + audit · idempotent retry
+              </span>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 

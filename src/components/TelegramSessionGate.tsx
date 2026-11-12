@@ -27,7 +27,7 @@ const STEPS = [
 export function TelegramSessionGate({ children }: { children: ReactNode }) {
   const { isLoading, isAuthenticated } = useConvexAuth();
   const user = useQuery(api.users.currentUser);
-  const { signIn } = useAuthActions();
+  const { signIn, signOut } = useAuthActions();
   const linkTelegram = useAction(api.telegram.linkTelegram);
   const telegramPresent = Boolean(getTelegram());
   const attempted = useRef<string | null>(null);
@@ -49,7 +49,7 @@ export function TelegramSessionGate({ children }: { children: ReactNode }) {
     if (telegramPresent && !initData) {
       if (!isAuthenticated || !user || user.isAnonymous) return;
     }
-    if (isAuthenticated) {
+    if (isAuthenticated && user !== null) {
       if (user === undefined) return;
       // An anonymous preview session that is now running inside Telegram is
       // replaced by the verified Telegram account.
@@ -87,6 +87,30 @@ export function TelegramSessionGate({ children }: { children: ReactNode }) {
       throw new Error(`Telegram account linking failed: ${lastReason}`);
     };
 
+    // The auth JWT can outlive the NEXPOOL user row after a canonical merge.
+    // Clear that stale session and sign in again so the Telegram numeric ID
+    // resolves to the surviving profile instead of rendering a profileless app.
+    if (isAuthenticated && user === null) {
+      if (!initData) return;
+      const key = `recover:${initData}`;
+      if (attempted.current === key) return;
+      attempted.current = key;
+      setError(null);
+      setStep(2);
+      window.clearTimeout(timer);
+      signOut()
+        .then(() => signIn("telegram", { initData }))
+        .then(linkWithRetry)
+        .catch((cause: unknown) =>
+          setError(
+            cause instanceof Error
+              ? cause.message
+              : "The recovered account could not be restored.",
+          ),
+        );
+      return;
+    }
+
     const flow = initData
       ? isAuthenticated && user?.isAnonymous
         ? // Attach the verified Telegram auth account to the current anonymous
@@ -107,7 +131,16 @@ export function TelegramSessionGate({ children }: { children: ReactNode }) {
       .finally(() => window.clearTimeout(timer));
 
     return () => window.clearTimeout(timer);
-  }, [isLoading, isAuthenticated, user, attempt, signIn, linkTelegram, telegramPresent]);
+  }, [
+    isLoading,
+    isAuthenticated,
+    user,
+    attempt,
+    signIn,
+    signOut,
+    linkTelegram,
+    telegramPresent,
+  ]);
 
   const missingTelegramSession =
     !isLoading && telegramPresent && !getTelegram()?.initData;
@@ -129,6 +162,42 @@ export function TelegramSessionGate({ children }: { children: ReactNode }) {
             <p className="font-mono text-[10px] leading-relaxed uppercase tracking-[0.1em] text-muted-foreground">
               No anonymous account or balance is created while this is unresolved.
             </p>
+          </div>
+        }
+      />
+    );
+  }
+
+  const staleSession = !isLoading && isAuthenticated && user === null;
+  if (staleSession && !getTelegram()?.initData) {
+    return (
+      <SessionScreen
+        eyebrow="AUTH · RECOVERY"
+        title="Session no longer has an account"
+        body="This session belonged to an account that was reconciled into another NEXPOOL account. Reopen NEXPOOL from @NEXPOOLBOT so the verified Telegram identity can open your canonical account."
+        footer={
+          <div className="space-y-2">
+            <Button className="w-full" onClick={() => window.location.reload()}>
+              Reopen Telegram session
+            </Button>
+            <p className="font-mono text-[10px] leading-relaxed uppercase tracking-[0.1em] text-muted-foreground">
+              No new account is created from a stale session.
+            </p>
+          </div>
+        }
+      />
+    );
+  }
+
+  if (staleSession) {
+    return (
+      <SessionScreen
+        eyebrow="AUTH · RECOVERY"
+        title="Restoring your canonical account"
+        body="The verified Telegram numeric ID is opening the surviving NEXPOOL account and retiring this old session."
+        footer={
+          <div className="h-0.5 w-full overflow-hidden bg-border">
+            <div className="h-full w-1/3 animate-signal-pulse bg-primary" />
           </div>
         }
       />
