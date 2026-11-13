@@ -26,11 +26,11 @@ import { cn } from "@/lib/utils";
 const FAQ = [
   {
     q: "How does mining actually accrue?",
-    a: "Normal mining accrues on server time. While the Mini App is open, presence heartbeats confirm the session. With background mining unlocked, the backend also reconciles the absence from the last server credit up to the entitlement expiry. It enforces the 0.000006000 NEX normal daily cap and writes the confirmed ledger total. The ledger is authoritative.",
+    a: "Mining never starts automatically. You must press Start Mining, and a daily 00:00 UTC reset only refreshes the allowance. While the Mini App is open, presence heartbeats confirm the session; after the presence lease expires, normal mining pauses. A heartbeat cannot start a new session. With background mining unlocked, an already-started session can continue while you are away, but a manual Stop still overrides it. All rewards use server time, the configured rate and the normal daily cap, and the confirmed ledger is authoritative.",
   },
   {
     q: "How do the verified ad unlocks work?",
-    a: "Background mining is one entitlement: 10 verified Monetag views unlock the configured window. The 5-hour extension is a separate entitlement: after the normal cap is reached, 20 separate verified views unlock the extension bucket. Ad opens and clicks never count. Each server-issued challenge needs a secret-authenticated Monetag postback with a valued event; a forged or replayed client completion cannot move progress.",
+    a: "Background mining is one entitlement: 10 verified Monetag views let an already-started session continue while you are away. It never creates a session. The 5-hour extension is separate: after the normal cap is reached, 20 different verified views grant the extra session, which still waits for you to press Start Extra Mining. Ad opens and clicks never count. Each server-issued challenge needs a secret-authenticated Monetag postback with a valued event; a forged or replayed client completion cannot move progress.",
   },
   {
     q: "Why hasn't my referral counted?",
@@ -60,8 +60,8 @@ const FAQ = [
 
 const RULES = [
   "Rewards are credited only after backend verification; nothing is simulated.",
-  "Mining uses server time and stops at the 0.000006000 NEX normal daily cap.",
-  "Background mining requires 10 verified ads; the extra 5 hours requires 20 separate verified ads.",
+  "Mining never starts automatically; the user must press Start Mining, even after a daily reset.",
+  "Background mining requires 10 verified ads and only continues an already-started session; the extra 5 hours requires 20 separate verified ads and a separate Start Extra Mining action.",
   "Referral and task bonuses can never push the total rate above 2× the base rate.",
   "Withdrawals reserve funds atomically and are paid only after the operator reconciles treasury and compliance.",
   "Self-referrals, duplicate accounts and forged verification callbacks are rejected and audited.",

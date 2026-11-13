@@ -198,6 +198,12 @@ const schema = defineSchema(
       miningSessionStartedAt: v.optional(v.number()),
       miningSessionHeartbeatAt: v.optional(v.number()),
       miningSessionCreditedAt: v.optional(v.number()),
+      // A manual Stop is authoritative. It clears the live session and blocks
+      // heartbeat/background auto-resume until the user explicitly starts again.
+      miningPausedAt: v.optional(v.number()),
+      // Last UTC day on which the user explicitly started a session. Used only
+      // to distinguish IDLE from PAUSED after a close or daily reset.
+      miningLastStartedDay: v.optional(v.string()),
       // Permanent lifecycle marker. The live session fields are cleared when
       // the app closes, so this is what reporting uses for "Ever started".
       firstMiningStartedAt: v.optional(v.number()),
@@ -427,10 +433,17 @@ const schema = defineSchema(
       adsCompleted: v.number(),
       normalMinedAtUnlockNex: v.number(),
       extensionHours: v.number(),
-      startedAt: v.number(),
-      endsAt: v.number(),
+      // A grant is recorded without starting the five-hour clock. The clock
+      // only starts when the user explicitly presses Start Extra Mining.
+      grantedAt: v.optional(v.number()),
+      startedAt: v.optional(v.number()),
+      endsAt: v.optional(v.number()),
       minedNex: v.number(),
-      status: v.union(v.literal("active"), v.literal("expired")),
+      status: v.union(
+        v.literal("granted"),
+        v.literal("active"),
+        v.literal("expired"),
+      ),
       finalizedAt: v.optional(v.number()),
       createdAt: v.number(),
     })

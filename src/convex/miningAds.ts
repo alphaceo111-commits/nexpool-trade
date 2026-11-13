@@ -36,6 +36,7 @@ type AdCompletionResult =
       purpose: AdPurpose;
       progress: number;
       endsAt?: number;
+      unlocked?: boolean;
     };
 
 async function pendingChallenge(ctx: MutationCtx, userId: Id<"users">) {
@@ -158,9 +159,15 @@ async function applyAdCompletion(
     .first();
   const normalMined = dayRow?.normalMinedNex ?? dayRow?.minedNex ?? 0;
   const extensionActive = (profile.miningExtensionEndsAt ?? 0) > now;
+  const alreadyGranted = Boolean(
+    profile.extensionUnlockedAt &&
+      !profile.miningExtensionStartedAt &&
+      !profile.miningExtensionEndsAt,
+  );
   if (
     normalMined < config.dailyLimitNex ||
     extensionActive ||
+    alreadyGranted ||
     profile.extensionUnlockDay === today
   ) {
     return await finish({
@@ -173,24 +180,24 @@ async function applyAdCompletion(
 
   const next = (profile.extensionAdProgress ?? 0) + 1;
   if (next >= EXTENSION_ADS_REQUIRED) {
-    const endsAt = now + config.extensionHours * 3_600_000;
+    // Record the grant only. The five-hour clock starts when the user presses
+    // Start Extra Mining; completing the ads must never start mining.
     const sessionId = await ctx.db.insert("miningExtensionSessions", {
       userId: profile.userId,
       day: today,
       adsCompleted: EXTENSION_ADS_REQUIRED,
       normalMinedAtUnlockNex: roundNex(normalMined),
       extensionHours: config.extensionHours,
-      startedAt: now,
-      endsAt,
+      grantedAt: now,
       minedNex: 0,
-      status: "active",
+      status: "granted",
       createdAt: now,
     });
     await ctx.db.patch(profile._id, {
       extensionAdProgress: 0,
       extensionUnlockedAt: now,
-      miningExtensionStartedAt: now,
-      miningExtensionEndsAt: endsAt,
+      miningExtensionStartedAt: undefined,
+      miningExtensionEndsAt: undefined,
       extensionUnlockDay: today,
       activeExtensionSessionId: sessionId,
     });
@@ -199,14 +206,14 @@ async function applyAdCompletion(
       profile,
       "mining",
       `${config.extensionHours}-hour extension unlocked`,
-      `You completed ${EXTENSION_ADS_REQUIRED} verified Monetag ads. Extension mining is live until ${new Date(endsAt).toISOString()}. Earnings are recorded separately from the normal daily cap.`,
+      `You completed ${EXTENSION_ADS_REQUIRED} verified Monetag ads. The extra session is unlocked but has not started. Open the Earn tab and press Start Extra Mining when you are ready.`,
     );
     return await finish({
       recorded: true,
       granted: true,
       purpose: "extension",
       progress: 0,
-      endsAt,
+      unlocked: true,
     });
   }
   await ctx.db.patch(profile._id, { extensionAdProgress: next });
@@ -281,6 +288,11 @@ export const requestAd = mutation({
     const normalMined = dayRow?.normalMinedNex ?? dayRow?.minedNex ?? 0;
     const extensionActive = (profile.miningExtensionEndsAt ?? 0) > now;
     const unlockedToday = profile.extensionUnlockDay === today;
+    const extensionGranted = Boolean(
+      profile.extensionUnlockedAt &&
+        !profile.miningExtensionStartedAt &&
+        !profile.miningExtensionEndsAt,
+    );
 
     if (args.purpose === "away") {
       if ((profile.awayMiningExpiresAt ?? 0) > now) {
@@ -295,9 +307,9 @@ export const requestAd = mutation({
       if (extensionActive) {
         throw new Error("The five-hour extension is already active.");
       }
-      if (unlockedToday) {
+      if (extensionGranted || unlockedToday) {
         throw new Error(
-          "The five-hour extension has already been unlocked today.",
+          "The five-hour extension is already unlocked. Press Start Extra Mining to use it.",
         );
       }
     }
@@ -580,16 +592,17 @@ export const finalizeExtensionSessions = internalMutation({
     const now = Date.now();
     const rows = await ctx.db
       .query("miningExtensionSessions")
-      .withIndex("by_status_endsAt", (q) =>
-        q.eq("status", "active").lte("endsAt", now),
-      )
-      .take(100);
-    for (const row of rows) {
+      .withIndex("by_status_endsAt", (q) => q.eq("status", "active"))
+      .collect();
+    const expired = rows
+      .filter((row) => row.endsAt !== undefined && row.endsAt <= now)
+      .slice(0, 100);
+    for (const row of expired) {
       await ctx.db.patch(row._id, {
         status: "expired",
         finalizedAt: row.endsAt,
       });
     }
-    return { finalized: rows.length };
+    return { finalized: expired.length };
   },
 });

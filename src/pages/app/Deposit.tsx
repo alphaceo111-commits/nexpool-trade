@@ -68,9 +68,9 @@ const SOURCE_ICON = {
 } as const;
 
 const SOURCE_TO = {
-  mining: "/app/mining",
-  task: "/app/tasks",
-  referral: "/app/referrals",
+  mining: "/app/earn/mining",
+  task: "/app/earn/tasks",
+  referral: "/app/community/referrals",
 } as const;
 
 const MINI_APP_TON = "TON mainnet";

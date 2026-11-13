@@ -801,10 +801,10 @@ export const mergeDuplicateAccount = mutation({
     // 3. Preserve one active extension at most. Primary wins an overlap.
     let movedActiveSession: Doc<"miningExtensionSessions"> | null = null;
     const primaryHasActiveExtension = primary.extensionSessions.some(
-      (row) => row.status === "active" && row.endsAt > now,
+      (row) => row.status === "active" && (row.endsAt ?? 0) > now,
     );
     for (const row of duplicate.extensionSessions) {
-      if (row.status === "active" && row.endsAt > now) {
+      if (row.status === "active" && (row.endsAt ?? 0) > now) {
         if (!primaryHasActiveExtension && !movedActiveSession) {
           await ctx.db.patch(row._id, { userId: primary.profile.userId });
           movedActiveSession = row;

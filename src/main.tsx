@@ -14,6 +14,16 @@ import "./index.css";
 // Lazy load route components for better code splitting
 const AppShell = lazy(() => import("./components/app/AppShell"));
 const Home = lazy(() => import("./pages/app/Home"));
+const EarnPage = lazy(() => import("./pages/app/Earn"));
+const EarnHub = lazy(() =>
+  import("./pages/app/Earn").then((module) => ({ default: module.EarnHub })),
+);
+const CommunityPage = lazy(() => import("./pages/app/Community"));
+const CommunityHub = lazy(() =>
+  import("./pages/app/Community").then((module) => ({
+    default: module.CommunityHub,
+  })),
+);
 const MiningPage = lazy(() => import("./pages/app/Mining"));
 const TasksPage = lazy(() => import("./pages/app/Tasks"));
 const LevelsPage = lazy(() => import("./pages/app/Levels"));
@@ -144,11 +154,38 @@ createRoot(document.getElementById("root")!).render(
                 <Route path="/auth" element={<Navigate to="/app" replace />} />
                 <Route path="/app" element={<AppShell />}>
                   <Route index element={<Home />} />
-                  <Route path="mining" element={<MiningPage />} />
-                  <Route path="tasks" element={<TasksPage />} />
-                  <Route path="levels" element={<LevelsPage />} />
-                  <Route path="referrals" element={<ReferralsPage />} />
-                  <Route path="leaderboard" element={<LeaderboardPage />} />
+                  <Route path="earn" element={<EarnPage />}>
+                    <Route index element={<EarnHub />} />
+                    <Route path="mining" element={<MiningPage />} />
+                    <Route path="tasks" element={<TasksPage />} />
+                  </Route>
+                  <Route path="community" element={<CommunityPage />}>
+                    <Route index element={<CommunityHub />} />
+                    <Route path="referrals" element={<ReferralsPage />} />
+                    <Route path="levels" element={<LevelsPage />} />
+                    <Route path="leaderboard" element={<LeaderboardPage />} />
+                  </Route>
+                  {/* Old links remain valid while every feature keeps a stable URL. */}
+                  <Route
+                    path="mining"
+                    element={<Navigate to="/app/earn/mining" replace />}
+                  />
+                  <Route
+                    path="tasks"
+                    element={<Navigate to="/app/earn/tasks" replace />}
+                  />
+                  <Route
+                    path="referrals"
+                    element={<Navigate to="/app/community/referrals" replace />}
+                  />
+                  <Route
+                    path="levels"
+                    element={<Navigate to="/app/community/levels" replace />}
+                  />
+                  <Route
+                    path="leaderboard"
+                    element={<Navigate to="/app/community/leaderboard" replace />}
+                  />
                   <Route path="wallet" element={<WalletPage />} />
                   <Route path="deposit" element={<DepositPage />} />
                   <Route path="withdraw" element={<WithdrawPage />} />

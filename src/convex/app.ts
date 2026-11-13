@@ -11,10 +11,12 @@ import {
   heartbeatMiningSession,
   loadConfig,
   notifyUser,
+  pauseMiningSession,
   readMiningSnapshot,
   requireProfile,
   roundNex,
   settleMining,
+  startExtraMiningSession,
   startMiningSession,
   stopMiningSession,
 } from "./engine";
@@ -491,7 +493,17 @@ export const claimMiningPopup = mutation({
     if (mining.status !== "limit" || mining.remainingTodayNex > 0) {
       return { show: false as const, reason: "cap_not_reached" as const };
     }
-    if (mining.extensionActive || mining.ads.extension.unlockedToday) {
+    if (
+      !mining.capReachedAt ||
+      dayKey(mining.capReachedAt) !== dayKey(now)
+    ) {
+      return { show: false as const, reason: "cap_event_missing" as const };
+    }
+    if (
+      mining.extensionActive ||
+      mining.extensionUnlocked ||
+      mining.ads.extension.unlockedToday
+    ) {
       return { show: false as const, reason: "extension_already_unlocked" as const };
     }
     const today = dayKey(now);
@@ -503,7 +515,7 @@ export const claimMiningPopup = mutation({
   },
 });
 
-/** Starts a presence-tracked mining session when the Mini App opens. */
+/** Explicitly starts a presence-tracked mining session. */
 export const startMining = mutation({
   args: {},
   handler: async (ctx) => {
@@ -511,6 +523,28 @@ export const startMining = mutation({
     const config = await loadConfig(ctx);
     const speed = await computeSpeed(ctx, profile, config);
     return await startMiningSession(ctx, profile, balance, config, speed);
+  },
+});
+
+/** Explicitly starts the granted extra session. Never called automatically. */
+export const startExtraMining = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const { profile, balance } = await requireProfile(ctx);
+    const config = await loadConfig(ctx);
+    const speed = await computeSpeed(ctx, profile, config);
+    return await startExtraMiningSession(ctx, profile, balance, config, speed);
+  },
+});
+
+/** Manual Stop: blocks background and heartbeat auto-resume until Start. */
+export const pauseMining = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const { profile, balance } = await requireProfile(ctx);
+    const config = await loadConfig(ctx);
+    const speed = await computeSpeed(ctx, profile, config);
+    return await pauseMiningSession(ctx, profile, balance, config, speed);
   },
 });
 

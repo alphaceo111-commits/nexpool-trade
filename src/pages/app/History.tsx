@@ -160,7 +160,7 @@ export default function History() {
               body="Mining accruals, verified task rewards and referral bonuses appear here the moment the backend posts them."
               action={
                 <Link
-                  to="/app/mining"
+                  to="/app/earn/mining"
                   className="font-mono text-[9px] uppercase tracking-[0.1em] text-primary"
                 >
                   Start mining

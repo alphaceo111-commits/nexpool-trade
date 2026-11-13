@@ -18,12 +18,10 @@ import {
   ArrowUpRight,
   Bell,
   CircleHelp,
-  Gauge,
   History as HistoryIcon,
-  LayoutDashboard,
-  ListChecks,
+  House,
+  Pickaxe,
   ShieldCheck,
-  Trophy,
   UserRound,
   Users,
   Wallet,
@@ -33,13 +31,11 @@ import { NavLink, Outlet, useLocation } from "react-router";
 
 /** The primary tabs shown in the mobile bottom bar. */
 const NAV = [
-  { to: "/app", label: "Home", icon: LayoutDashboard, end: true },
-  { to: "/app/mining", label: "Mining", icon: Gauge, end: false },
-  { to: "/app/tasks", label: "Tasks", icon: ListChecks, end: false },
-  { to: "/app/levels", label: "Levels", icon: Trophy, end: false },
-  { to: "/app/referrals", label: "Referrals", icon: Users, end: false },
-  { to: "/app/leaderboard", label: "Ranks", icon: Trophy, end: false },
+  { to: "/app", label: "Home", icon: House, end: true },
+  { to: "/app/earn", label: "Earn", icon: Pickaxe, end: false },
+  { to: "/app/community", label: "Community", icon: Users, end: false },
   { to: "/app/wallet", label: "Wallet", icon: Wallet, end: false },
+  { to: "/app/profile", label: "Profile", icon: UserRound, end: false },
 ];
 
 /** Sections that open from Home, Wallet or Profile rather than the bottom bar. */
@@ -49,17 +45,18 @@ const ACCOUNT_NAV = [
   { to: "/app/history", label: "History", icon: HistoryIcon },
   { to: "/app/help", label: "Help & support", icon: CircleHelp },
   { to: "/app/notifications", label: "Notifications", icon: Bell },
-  { to: "/app/profile", label: "Profile", icon: UserRound },
   { to: "/admin", label: "Operator console", icon: ShieldCheck },
 ];
 
 const TITLES: Record<string, string> = {
-  "/app": "Dashboard",
-  "/app/mining": "Mining engine",
-  "/app/tasks": "Task centre",
-  "/app/levels": "Progression",
-  "/app/referrals": "Referral desk",
-  "/app/leaderboard": "Leaderboard",
+  "/app": "Home",
+  "/app/earn": "Earn",
+  "/app/earn/mining": "Mining engine",
+  "/app/earn/tasks": "Tasks & missions",
+  "/app/community": "Community",
+  "/app/community/referrals": "Referral desk",
+  "/app/community/levels": "Levels & achievements",
+  "/app/community/leaderboard": "Leaderboards",
   "/app/wallet": "Wallet",
   "/app/deposit": "Deposit",
   "/app/withdraw": "Withdraw",
@@ -213,7 +210,6 @@ export default function AppShell() {
   const location = useLocation();
   const snapshot = useQuery(api.app.snapshot);
   const ensure = useMutation(api.app.ensure);
-  const startMining = useMutation(api.app.startMining);
   const heartbeatMining = useMutation(api.app.heartbeatMining);
   const stopMining = useMutation(api.app.stopMining);
   const linkTelegram = useAction(api.telegram.linkTelegram);
@@ -231,9 +227,8 @@ export default function AppShell() {
     await ensure({
       referralCode: code ?? undefined,
     });
-    // Mining runs only while this Mini App is open and visible. Starting here
-    // also prevents a closed app from earning the time it was away.
-    await startMining().catch(() => undefined);
+    // Opening NEXPOOL does not authorize mining. The user must press Start
+    // Mining in Earn, even after a new UTC day resets the daily allowance.
   };
 
   useEffect(() => {
@@ -250,7 +245,17 @@ export default function AppShell() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const miningLive = Boolean(
+    !snapshot?.mining.manuallyPaused &&
+      (snapshot?.mining.sessionActive ||
+        snapshot?.mining.extensionActive ||
+        snapshot?.mining.backgroundSessionPending),
+  );
   useEffect(() => {
+    if (!miningLive) return;
+    if (document.visibilityState === "visible") {
+      heartbeatMining().catch(() => undefined);
+    }
     const id = window.setInterval(() => {
       if (document.visibilityState !== "visible") return;
       heartbeatMining().catch(() => undefined);
@@ -272,7 +277,7 @@ export default function AppShell() {
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("pagehide", onPageHide);
     };
-  }, [heartbeatMining, stopMining]);
+  }, [heartbeatMining, miningLive, stopMining]);
 
   // Keeps the NEXPOOL profile bound to the verified Telegram identity. It
   // retries while the session settles and stops as soon as the snapshot reports
@@ -426,7 +431,7 @@ export default function AppShell() {
           aria-label="Main navigation"
           className="fixed inset-x-0 bottom-0 z-40 border-t border-border/80 nav-blur bottom-nav lg:hidden"
         >
-          <div className="mx-auto grid max-w-lg grid-cols-7">
+          <div className="mx-auto grid max-w-lg grid-cols-5">
             {NAV.map((item) => (
               <NavLink
                 key={item.to}

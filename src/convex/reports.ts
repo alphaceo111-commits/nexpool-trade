@@ -141,10 +141,10 @@ export const adminReports = query({
         (row.capReachedAt ?? row.updatedAt) < now + 1,
     ).length;
     const activeExtensionSessions = extensionSessions.filter(
-      (row) => row.endsAt > now,
+      (row) => (row.endsAt ?? 0) > now,
     );
     const expiredExtensionSessions = extensionSessions.filter(
-      (row) => row.endsAt <= now,
+      (row) => row.endsAt !== undefined && row.endsAt <= now,
     );
 
     const miningReport = {

@@ -287,7 +287,9 @@ export default function Home() {
         if (started.status === "active" || started.status === "limit") {
           toast.success(
             started.status === "limit"
-              ? "Mining session started, but today's cap is already reached."
+              ? started.extensionReady
+                ? "Today's normal cap is already reached. Your extra session is unlocked — open Earn to start it."
+                : "Today's normal cap is already reached. Watch 20 verified ads in Earn to unlock extra mining."
               : "Mining started. It runs only while this app is open.",
           );
         } else {
@@ -412,7 +414,7 @@ export default function Home() {
               capNex={mining.todayLimitNex}
               ratePerHour={speed.total}
               serverNow={snapshot.serverNow}
-              enabled={active && !mining.extensionActive}
+              enabled={mining.sessionActive && !mining.extensionActive}
               status={mining.status}
             />
             <div className="mt-2 grid grid-cols-2 divide-x divide-border/70 border-t border-border/70 pt-3">
@@ -448,9 +450,18 @@ export default function Home() {
                 </span>
               </div>
             ) : null}
+            {mining.extensionUnlocked ? (
+              <Link
+                to="/app/earn/mining"
+                className="mt-2 flex items-center justify-between gap-2 rounded-sm border border-gold/35 bg-gold/[0.05] px-2.5 py-2 font-mono text-[8.5px] uppercase tracking-[0.08em] text-gold"
+              >
+                Extra session unlocked · press Start
+                <ArrowUpRight className="size-3" />
+              </Link>
+            ) : null}
             {mining.awayMiningActive ? (
               <p className="mt-2 font-mono text-[8.5px] uppercase tracking-[0.08em] text-up">
-                Background mining permission active
+                Background entitlement active · never starts a session
               </p>
             ) : null}
         </Panel>
@@ -484,13 +495,13 @@ export default function Home() {
           icon={ListChecks}
           label="Complete tasks"
           hint={`${tasks.available} available`}
-          to="/app/tasks"
+          to="/app/earn/tasks"
         />
         <QuickAction
           icon={Users}
           label="Invite friends"
           hint={`${referrals.qualified}/${referrals.target} qualified`}
-          to="/app/referrals"
+          to="/app/community/referrals"
         />
         <QuickAction
           icon={Wallet}
@@ -589,7 +600,7 @@ export default function Home() {
           eyebrow="Mining speed"
           action={
             <Link
-              to="/app/mining"
+              to="/app/earn/mining"
               className="font-mono text-[9px] uppercase tracking-[0.1em] text-primary"
             >
               Open
@@ -630,7 +641,7 @@ export default function Home() {
           eyebrow="Referral qualification"
           action={
             <Link
-              to="/app/referrals"
+              to="/app/community/referrals"
               className="font-mono text-[9px] uppercase tracking-[0.1em] text-primary"
             >
               Invite
@@ -797,9 +808,11 @@ export default function Home() {
       <div className="flex items-start gap-2.5 rounded-md border border-border/70 bg-panel/60 px-3.5 py-3">
         <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" />
         <p className="text-[10.5px] leading-relaxed text-muted-foreground">
-          Mining runs only while this Mini App is open and visible. Leaving or
-          closing stops accrual within 60 seconds; changing your device clock
-          does not create earnings. Daily cap resets at 00:00 UTC.
+          Mining never starts automatically, including after the 00:00 UTC daily
+          reset. Normal mining pauses within 60 seconds of leaving unless a
+          background entitlement continues a session you already started. The
+          extra five-hour session is a separate authorized bucket. Changing your
+          device clock does not create earnings.
         </p>
       </div>
     </div>

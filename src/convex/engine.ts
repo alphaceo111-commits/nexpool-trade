@@ -233,7 +233,7 @@ export async function ensureAccount(
       kind: "announcement",
       title: "Welcome to NEXPOOL",
       body:
-        "Mining starts from the account creation timestamp. Complete 3 verified tasks per invited friend to unlock withdrawal eligibility.",
+        "Open the Earn tab and press Start Mining when you are ready. Mining never starts automatically, not even after a daily reset. Complete 3 verified tasks per invited friend to unlock withdrawal eligibility.",
       createdAt: now,
     });
   }
@@ -511,11 +511,20 @@ function extensionWindow(
   profile: Doc<"profiles">,
   now: number,
 ): { startedAt: number; endsAt: number } | null {
-  const startedAt =
-    profile.miningExtensionStartedAt ?? profile.extensionUnlockedAt;
+  // `extensionUnlockedAt` is only a grant. The five-hour clock must not start
+  // until the user explicitly presses Start Extra Mining.
+  const startedAt = profile.miningExtensionStartedAt;
   const endsAt = profile.miningExtensionEndsAt;
   if (!startedAt || !endsAt || endsAt <= now || startedAt > now) return null;
   return { startedAt, endsAt };
+}
+
+function extensionGranted(profile: Doc<"profiles">) {
+  return Boolean(
+    profile.extensionUnlockedAt &&
+      !profile.miningExtensionStartedAt &&
+      !profile.miningExtensionEndsAt,
+  );
 }
 
 function awayMiningActive(profile: Doc<"profiles">, now: number) {
@@ -711,8 +720,7 @@ async function creditMiningWindow(
     );
     const extension = extensionWindow(profile, cursor);
     const dayEnd = Math.min(to, nextUtcMidnight(cursor));
-    const extensionStart =
-      profile.miningExtensionStartedAt ?? profile.extensionUnlockedAt;
+    const extensionStart = profile.miningExtensionStartedAt;
 
     let mode: "normal" | "extension" | null = null;
     let sliceEnd = dayEnd;
@@ -777,7 +785,12 @@ async function creditMiningWindow(
   // its expiry. Keeping the row preserves the final extension earnings.
   if (profile.activeExtensionSessionId) {
     const session = await ctx.db.get(profile.activeExtensionSessionId);
-    if (session && session.endsAt <= to && session.status === "active") {
+    if (
+      session &&
+      session.endsAt !== undefined &&
+      session.endsAt <= to &&
+      session.status === "active"
+    ) {
       await ctx.db.patch(session._id, {
         status: "expired",
         finalizedAt: Math.min(to, session.endsAt),
@@ -880,7 +893,9 @@ async function settleAwayMining(
     !config.miningEnabled ||
     profile.restricted ||
     speed.total <= 0 ||
-    !profile.awayMiningExpiresAt
+    !profile.awayMiningExpiresAt ||
+    profile.miningPausedAt ||
+    (!profile.miningSessionStartedAt && !profile.awayMiningStartedAt)
   ) {
     await ctx.db.patch(profile._id, { awayMiningStartedAt: undefined });
     return { creditedNex: 0, status: "paused" as const };
@@ -894,14 +909,20 @@ async function settleAwayMining(
   const lastPresence =
     profile.miningSessionCreditedAt ?? profile.miningSessionHeartbeatAt;
   const from = Math.max(
-    profile.awayMiningStartedAt ?? lastPresence ?? profile.awayMiningUnlockedAt ?? now,
+    profile.awayMiningStartedAt ??
+      lastPresence ??
+      profile.awayMiningUnlockedAt ??
+      now,
     profile.awayMiningUnlockedAt ?? 0,
   );
   // Settle even if the permission window has already ended: the user is
   // entitled to the part of the absence that fell inside the window.
   const to = Math.min(now, profile.awayMiningExpiresAt);
   if (to <= from) {
-    await ctx.db.patch(profile._id, { awayMiningStartedAt: undefined });
+    await ctx.db.patch(profile._id, {
+      awayMiningStartedAt: undefined,
+      miningSessionCreditedAt: to,
+    });
     return { creditedNex: 0, status: "paused" as const };
   }
 
@@ -914,12 +935,109 @@ async function settleAwayMining(
     from,
     to,
   );
-  await ctx.db.patch(profile._id, { awayMiningStartedAt: undefined });
+  await ctx.db.patch(profile._id, {
+    awayMiningStartedAt: undefined,
+    // Anchor the next presence credit at the end of the settled absence. This
+    // avoids double-crediting a gap when the user returns online.
+    miningSessionCreditedAt: to,
+  });
   return { creditedNex: result.creditedNex, status: result.status };
 }
 
+/**
+ * The five-hour extension is an explicitly authorized session. Once started it
+ * is allowed to settle its full server-time window, even if the Mini App was
+ * closed, because the user spent 20 verified ads to start it. It never credits
+ * normal mining after the extension window ends.
+ */
+async function settleExtensionGap(
+  ctx: MutationCtx,
+  profile: Doc<"profiles">,
+  balance: Doc<"balances">,
+  config: AppConfigShape,
+  speed: SpeedModel,
+  now: number,
+) {
+  if (
+    !config.miningEnabled ||
+    profile.restricted ||
+    profile.miningPausedAt ||
+    speed.total <= 0
+  ) {
+    return { creditedNex: 0, status: "paused" as const };
+  }
+  const startedAt = profile.miningExtensionStartedAt;
+  const endsAt = profile.miningExtensionEndsAt;
+  if (!startedAt || !endsAt) {
+    return { creditedNex: 0, status: "paused" as const };
+  }
+  const from = Math.max(
+    startedAt,
+    profile.miningSessionCreditedAt ?? startedAt,
+  );
+  const to = Math.min(now, endsAt);
+  if (to <= from) {
+    return { creditedNex: 0, status: "paused" as const };
+  }
+
+  let cursor = from;
+  let creditedNex = 0;
+  while (cursor < to) {
+    const boundary = Math.min(to, nextUtcMidnight(cursor));
+    const amount = roundNex(((boundary - cursor) / 3_600_000) * speed.total);
+    if (amount > 0) {
+      await applyMiningCredit(
+        ctx,
+        profile,
+        dayKey(cursor),
+        0,
+        amount,
+        speed.total,
+        cursor,
+        boundary,
+      );
+      creditedNex = roundNex(creditedNex + amount);
+    }
+    cursor = boundary;
+  }
+  await ctx.db.patch(profile._id, { miningSessionCreditedAt: to });
+  if (creditedNex > 0) {
+    await ctx.db.patch(balance._id, {
+      availableNex: roundNex(balance.availableNex + creditedNex),
+      lifetimeMinedNex: roundNex(balance.lifetimeMinedNex + creditedNex),
+      lastSettledAt: to,
+      updatedAt: to,
+    });
+  }
+  if (profile.activeExtensionSessionId) {
+    const session = await ctx.db.get(profile.activeExtensionSessionId);
+    if (session && session.endsAt !== undefined && session.endsAt <= now) {
+      if (session.status === "active") {
+        await ctx.db.patch(session._id, {
+          status: "expired",
+          finalizedAt: session.endsAt,
+        });
+      }
+    }
+  }
+  return {
+    creditedNex,
+    status: (endsAt > now ? "active" : "paused") as "active" | "paused",
+  };
+}
+
+export type MiningState =
+  | "IDLE"
+  | "ACTIVE"
+  | "BACKGROUND_ACTIVE"
+  | "PAUSED"
+  | "CAP_REACHED"
+  | "EXPIRED"
+  | "COMPLETED";
+
 export type MiningSnapshot = {
   status: "active" | "paused" | "limit" | "restricted";
+  state: MiningState;
   rateNexPerHour: number;
   todayMinedNex: number;
   todayTotalNex: number;
@@ -932,11 +1050,17 @@ export type MiningSnapshot = {
   uncollectedMs: number;
   capReachedAt: number | null;
   sessionActive: boolean;
+  manuallyPaused: boolean;
+  backgroundSessionPending: boolean;
   awayMiningActive: boolean;
+  awayMiningEntitled: boolean;
   awayMiningExpiresAt: number | null;
   awayMiningExpired: boolean;
   awayMiningHours: number;
   extensionActive: boolean;
+  extensionUnlocked: boolean;
+  extensionStartable: boolean;
+  extensionUnlockedAt: number | null;
   extensionStartedAt: number | null;
   extensionEndsAt: number | null;
   extensionRemainingMs: number;
@@ -947,6 +1071,7 @@ export type MiningSnapshot = {
       required: number;
       completed: number;
       active: boolean;
+      sessionActive: boolean;
       unlockedAt: number | null;
       expiresAt: number | null;
       expired: boolean;
@@ -956,6 +1081,8 @@ export type MiningSnapshot = {
       completed: number;
       active: boolean;
       eligible: boolean;
+      unlocked: boolean;
+      startable: boolean;
       endsAt: number | null;
       unlockedToday: boolean;
       expiredToday: boolean;
@@ -979,27 +1106,43 @@ export async function readMiningSnapshot(
   const extensionMined = extensionMinedFromRow(dayRow);
   const remaining = roundNex(Math.max(0, config.dailyLimitNex - todayMined));
   const sessionActive = miningSessionActive(profile, now);
-  const awayActive = awayMiningActive(profile, now);
+  const awayEntitled = awayMiningActive(profile, now);
   const extension = extensionWindow(profile, now);
   const extensionLive = Boolean(extension);
-  const pendingMs = sessionActive
-    ? Math.min(
-        Math.max(
-          0,
-          now -
-            (profile.miningSessionCreditedAt ??
-              profile.miningSessionHeartbeatAt ??
-              now),
-        ),
-        MAX_SESSION_CREDIT_MS,
-      )
-    : 0;
+  const extensionUnlocked = extensionGranted(profile);
+  const manuallyPaused = Boolean(profile.miningPausedAt);
+  const backgroundSessionActive = Boolean(
+    awayEntitled &&
+      (profile.awayMiningStartedAt !== undefined ||
+        profile.miningSessionStartedAt !== undefined),
+  );
+  const backgroundSessionPending = Boolean(
+    !sessionActive &&
+      profile.awayMiningExpiresAt !== undefined &&
+      (profile.awayMiningStartedAt !== undefined ||
+        profile.miningSessionStartedAt !== undefined),
+  );
+  const extensionOfflineActive = Boolean(extensionLive && !sessionActive);
+  const pendingMs =
+    sessionActive && !manuallyPaused
+      ? Math.min(
+          Math.max(
+            0,
+            now -
+              (profile.miningSessionCreditedAt ??
+                profile.miningSessionHeartbeatAt ??
+                now),
+          ),
+          MAX_SESSION_CREDIT_MS,
+        )
+      : 0;
   const projectedMs = extensionLive
     ? pendingMs
     : Math.min(pendingMs, remaining / Math.max(speed.total, 1e-12) * 3_600_000);
-  const pendingNex = sessionActive
-    ? roundNex((projectedMs / 3_600_000) * speed.total)
-    : 0;
+  const pendingNex =
+    sessionActive && !manuallyPaused
+      ? roundNex((projectedMs / 3_600_000) * speed.total)
+      : 0;
 
   const pendingChallenge = await ctx.db
     .query("miningAdChallenges")
@@ -1013,7 +1156,25 @@ export async function readMiningSnapshot(
   if (profile.restricted) status = "restricted";
   else if (!config.miningEnabled) status = "paused";
   else if (remaining <= 0 && !extensionLive) status = "limit";
-  else if (!sessionActive && !awayActive) status = "paused";
+  else if (manuallyPaused) status = "paused";
+  else if (!sessionActive && !backgroundSessionActive && !extensionLive) {
+    status = "paused";
+  }
+
+  let state: MiningState = "IDLE";
+  if (profile.restricted || !config.miningEnabled) state = "PAUSED";
+  else if (remaining <= 0 && !extensionLive) state = "CAP_REACHED";
+  else if (sessionActive) state = "ACTIVE";
+  else if (backgroundSessionActive || extensionOfflineActive) {
+    state = manuallyPaused ? "PAUSED" : "BACKGROUND_ACTIVE";
+  } else if (manuallyPaused) state = "PAUSED";
+  else if (
+    profile.miningLastStartedDay === today ||
+    todayMined > 0 ||
+    extensionMined > 0
+  ) {
+    state = "PAUSED";
+  }
 
   const awayProgress = profile.awayMiningAdProgress ?? 0;
   const extensionProgress = profile.extensionAdProgress ?? 0;
@@ -1035,6 +1196,7 @@ export async function readMiningSnapshot(
 
   return {
     status,
+    state,
     rateNexPerHour: speed.total,
     todayMinedNex: todayMined,
     todayTotalNex: roundNex(todayMined + extensionMined),
@@ -1047,21 +1209,23 @@ export async function readMiningSnapshot(
     uncollectedMs: pendingMs,
     capReachedAt,
     sessionActive,
-    awayMiningActive: awayActive,
+    manuallyPaused,
+    backgroundSessionPending,
+    awayMiningActive: awayEntitled,
+    awayMiningEntitled: awayEntitled,
     awayMiningExpiresAt: profile.awayMiningExpiresAt ?? null,
     awayMiningExpired: awayExpired,
     awayMiningHours: config.awayMiningHours,
     extensionActive: extensionLive,
+    extensionUnlocked,
+    extensionStartable: extensionUnlocked,
+    extensionUnlockedAt: profile.extensionUnlockedAt ?? null,
     extensionStartedAt:
-      extension?.startedAt ??
-      (unlockedToday || extensionExpiredToday
-        ? (profile.miningExtensionStartedAt ??
-          profile.extensionUnlockedAt ??
-          null)
-        : null),
+      extensionLive || extensionExpiredToday
+        ? (profile.miningExtensionStartedAt ?? null)
+        : null,
     extensionEndsAt:
-      extension?.endsAt ??
-      (unlockedToday || extensionExpiredToday ? storedExtensionEndsAt : null),
+      extensionLive || extensionExpiredToday ? storedExtensionEndsAt : null,
     extensionRemainingMs: extension ? extension.endsAt - now : 0,
     extensionExpiredToday,
     ads: {
@@ -1072,7 +1236,8 @@ export async function readMiningSnapshot(
       away: {
         required: AWAY_ADS_REQUIRED,
         completed: awayProgress,
-        active: awayActive,
+        active: awayEntitled,
+        sessionActive: backgroundSessionActive,
         unlockedAt: profile.awayMiningUnlockedAt ?? null,
         expiresAt: profile.awayMiningExpiresAt ?? null,
         expired: awayExpired,
@@ -1081,7 +1246,13 @@ export async function readMiningSnapshot(
         required: EXTENSION_ADS_REQUIRED,
         completed: extensionProgress,
         active: extensionLive,
-        eligible: remaining <= 0 && !extensionLive && !unlockedToday,
+        eligible:
+          remaining <= 0 &&
+          !extensionLive &&
+          !unlockedToday &&
+          !extensionUnlocked,
+        unlocked: extensionUnlocked,
+        startable: extensionUnlocked,
         endsAt: extension?.endsAt ?? null,
         unlockedToday,
         expiredToday: extensionExpiredToday,
@@ -1117,13 +1288,48 @@ export async function settleMining(
       status: profile.restricted ? ("restricted" as const) : ("paused" as const),
     };
   }
+  if (profile.miningPausedAt) {
+    return { creditedNex: 0, status: "paused" as const };
+  }
   if (miningSessionActive(profile, now)) {
     return await creditMiningSession(ctx, profile, balance, config, speed, now);
   }
-  if (awayMiningActive(profile, now)) {
-    return await settleAwayMining(ctx, profile, balance, config, speed, now);
+
+  let creditedNex = 0;
+  // Settle an expired background entitlement too: the user is entitled to the
+  // portion of the absence that fell before its server expiry.
+  if (
+    profile.awayMiningExpiresAt !== undefined &&
+    (profile.miningSessionStartedAt !== undefined ||
+      profile.awayMiningStartedAt !== undefined)
+  ) {
+    const away = await settleAwayMining(
+      ctx,
+      profile,
+      balance,
+      config,
+      speed,
+      now,
+    );
+    creditedNex = away.creditedNex;
+    profile = (await ctx.db.get(profile._id))!;
+    balance = (await ctx.db.get(balance._id))!;
   }
-  return { creditedNex: 0, status: "paused" as const };
+  if (profile.miningExtensionStartedAt && profile.miningExtensionEndsAt) {
+    const extension = await settleExtensionGap(
+      ctx,
+      profile,
+      balance,
+      config,
+      speed,
+      now,
+    );
+    creditedNex = roundNex(creditedNex + extension.creditedNex);
+  }
+  return {
+    creditedNex,
+    status: creditedNex > 0 ? ("active" as const) : ("paused" as const),
+  };
 }
 
 /** Starts a fresh presence-tracked session, first settling any valid away gap. */
@@ -1136,17 +1342,33 @@ export async function startMiningSession(
 ) {
   const now = Date.now();
   if (!config.miningEnabled) {
-    return { creditedNex: 0, status: "paused" as const };
+    return { creditedNex: 0, status: "paused" as const, extensionReady: false };
   }
   if (profile.restricted) {
-    return { creditedNex: 0, status: "restricted" as const };
+    return {
+      creditedNex: 0,
+      status: "restricted" as const,
+      extensionReady: false,
+    };
   }
   if (miningSessionActive(profile, now)) {
-    return await creditMiningSession(ctx, profile, balance, config, speed, now);
+    const result = await creditMiningSession(
+      ctx,
+      profile,
+      balance,
+      config,
+      speed,
+      now,
+    );
+    return { ...result, extensionReady: extensionGranted(profile) };
   }
 
   let creditedNex = 0;
-  if (profile.awayMiningExpiresAt !== undefined) {
+  if (
+    profile.awayMiningExpiresAt !== undefined &&
+    (profile.miningSessionStartedAt !== undefined ||
+      profile.awayMiningStartedAt !== undefined)
+  ) {
     const away = await settleAwayMining(
       ctx,
       profile,
@@ -1156,8 +1378,23 @@ export async function startMiningSession(
       now,
     );
     creditedNex = away.creditedNex;
-    // settleAwayMining and the credit loop write several counters directly.
-    // Re-read before starting the new presence window.
+    profile = (await ctx.db.get(profile._id))!;
+    balance = (await ctx.db.get(balance._id))!;
+  }
+  if (
+    !profile.miningPausedAt &&
+    profile.miningExtensionStartedAt &&
+    profile.miningExtensionEndsAt
+  ) {
+    const extension = await settleExtensionGap(
+      ctx,
+      profile,
+      balance,
+      config,
+      speed,
+      now,
+    );
+    creditedNex = roundNex(creditedNex + extension.creditedNex);
     profile = (await ctx.db.get(profile._id))!;
     balance = (await ctx.db.get(balance._id))!;
   }
@@ -1173,18 +1410,24 @@ export async function startMiningSession(
       miningSessionHeartbeatAt: undefined,
       awayMiningStartedAt: undefined,
     });
-    return { creditedNex, status: "limit" as const };
+    return {
+      creditedNex,
+      status: "limit" as const,
+      extensionReady: extensionGranted(profile),
+    };
   }
 
   await ctx.db.patch(profile._id, {
     miningSessionStartedAt: now,
     miningSessionHeartbeatAt: now,
     miningSessionCreditedAt: now,
+    miningPausedAt: undefined,
+    miningLastStartedDay: dayKey(now),
     awayMiningStartedAt: undefined,
     firstMiningStartedAt: profile.firstMiningStartedAt ?? now,
     lastActiveAt: now,
   });
-  return { creditedNex, status: "active" as const };
+  return { creditedNex, status: "active" as const, extensionReady: false };
 }
 
 /** Keeps the session alive and credits only the elapsed presence window. */
@@ -1195,21 +1438,79 @@ export async function heartbeatMiningSession(
   config: AppConfigShape,
   speed: SpeedModel,
 ) {
-  if (!miningSessionActive(profile, Date.now())) {
-    return await startMiningSession(ctx, profile, balance, config, speed);
-  }
   const now = Date.now();
-  await ctx.db.patch(profile._id, {
-    lastActiveAt: now,
-    firstMiningStartedAt: profile.firstMiningStartedAt ?? now,
-  });
-  if (!config.miningEnabled || profile.restricted || speed.total <= 0) {
-    return {
-      creditedNex: 0,
-      status: profile.restricted ? ("restricted" as const) : ("paused" as const),
-    };
+  // A heartbeat is presence, never authorization. It may keep an existing
+  // session alive, but it must never create one after a daily reset, a manual
+  // Stop, or an ordinary close without background mining.
+  if (profile.miningPausedAt) {
+    await ctx.db.patch(profile._id, { lastActiveAt: now });
+    return { creditedNex: 0, status: "paused" as const };
   }
-  return await creditMiningSession(ctx, profile, balance, config, speed, now);
+  if (miningSessionActive(profile, now)) {
+    await ctx.db.patch(profile._id, {
+      lastActiveAt: now,
+      firstMiningStartedAt: profile.firstMiningStartedAt ?? now,
+    });
+    if (!config.miningEnabled || profile.restricted || speed.total <= 0) {
+      return {
+        creditedNex: 0,
+        status: profile.restricted
+          ? ("restricted" as const)
+          : ("paused" as const),
+      };
+    }
+    return await creditMiningSession(ctx, profile, balance, config, speed, now);
+  }
+
+  const hadBackgroundSession = Boolean(
+    profile.awayMiningExpiresAt !== undefined &&
+      (profile.awayMiningStartedAt !== undefined ||
+        profile.miningSessionStartedAt !== undefined),
+  );
+  const canResumeBackground = Boolean(
+    hadBackgroundSession && awayMiningActive(profile, now),
+  );
+  const extensionLive = Boolean(extensionWindow(profile, now));
+  if (!hadBackgroundSession && !extensionLive) {
+    await ctx.db.patch(profile._id, { lastActiveAt: now });
+    return { creditedNex: 0, status: "paused" as const };
+  }
+
+  const settled = await settleMining(
+    ctx,
+    profile,
+    balance,
+    config,
+    speed,
+  );
+  const fresh = (await ctx.db.get(profile._id))!;
+  if (profile.miningPausedAt) {
+    return settled;
+  }
+  const canResumeExtension = Boolean(extensionWindow(fresh, now));
+  if (!canResumeBackground && !canResumeExtension) {
+    await ctx.db.patch(profile._id, {
+      lastActiveAt: now,
+      miningSessionStartedAt: undefined,
+      miningSessionHeartbeatAt: undefined,
+      awayMiningStartedAt: undefined,
+    });
+    return settled;
+  }
+
+  await ctx.db.patch(profile._id, {
+    miningSessionStartedAt: now,
+    miningSessionHeartbeatAt: now,
+    miningSessionCreditedAt: now,
+    miningLastStartedDay: dayKey(now),
+    awayMiningStartedAt: undefined,
+    lastActiveAt: now,
+    firstMiningStartedAt: fresh.firstMiningStartedAt ?? now,
+  });
+  return {
+    creditedNex: settled.creditedNex,
+    status: "active" as const,
+  };
 }
 
 /** Stops presence credit; away permission keeps the last credit timestamp. */
@@ -1221,17 +1522,135 @@ export async function stopMiningSession(
   speed: SpeedModel,
 ) {
   const now = Date.now();
-  const result = miningSessionActive(profile, now)
+  const wasActive = miningSessionActive(profile, now);
+  const result = wasActive
     ? await creditMiningSession(ctx, profile, balance, config, speed, now)
     : { creditedNex: 0, status: "paused" as const };
-  const awayActive = awayMiningActive(profile, now);
+  // Background continuation is only valid for a session that was actually
+  // running, and never after a manual pause.
+  const continueInBackground = Boolean(
+    wasActive && !profile.miningPausedAt && awayMiningActive(profile, now),
+  );
   await ctx.db.patch(profile._id, {
     miningSessionStartedAt: undefined,
     miningSessionHeartbeatAt: undefined,
-    miningSessionCreditedAt: awayActive ? now : undefined,
-    awayMiningStartedAt: awayActive ? now : undefined,
+    miningSessionCreditedAt: wasActive ? now : profile.miningSessionCreditedAt,
+    awayMiningStartedAt: continueInBackground ? now : undefined,
   });
   return result;
+}
+
+/** Explicit Stop: blocks background and heartbeat auto-resume until Start. */
+export async function pauseMiningSession(
+  ctx: MutationCtx,
+  profile: Doc<"profiles">,
+  balance: Doc<"balances">,
+  config: AppConfigShape,
+  speed: SpeedModel,
+) {
+  const now = Date.now();
+  const result = miningSessionActive(profile, now)
+    ? await creditMiningSession(ctx, profile, balance, config, speed, now)
+    : { creditedNex: 0, status: "paused" as const };
+  await ctx.db.patch(profile._id, {
+    miningSessionStartedAt: undefined,
+    miningSessionHeartbeatAt: undefined,
+    miningSessionCreditedAt: now,
+    miningPausedAt: now,
+    awayMiningStartedAt: undefined,
+  });
+  return result;
+}
+
+/**
+ * Starts a granted five-hour extension. The grant alone never starts mining;
+ * this explicit action starts both the extension clock and the presence window.
+ */
+export async function startExtraMiningSession(
+  ctx: MutationCtx,
+  profile: Doc<"profiles">,
+  balance: Doc<"balances">,
+  config: AppConfigShape,
+  speed: SpeedModel,
+) {
+  const now = Date.now();
+  if (!config.miningEnabled) {
+    return { started: false as const, reason: "disabled" as const };
+  }
+  if (profile.restricted) {
+    return { started: false as const, reason: "restricted" as const };
+  }
+  const live = extensionWindow(profile, now);
+  if (live) {
+    return {
+      started: true as const,
+      alreadyActive: true as const,
+      endsAt: live.endsAt,
+      creditedNex: 0,
+    };
+  }
+  if (!extensionGranted(profile)) {
+    return { started: false as const, reason: "not_unlocked" as const };
+  }
+
+  let creditedNex = 0;
+  if (miningSessionActive(profile, now)) {
+    const settled = await creditMiningSession(
+      ctx,
+      profile,
+      balance,
+      config,
+      speed,
+      now,
+    );
+    creditedNex = settled.creditedNex;
+    profile = (await ctx.db.get(profile._id))!;
+  }
+
+  const endsAt = now + config.extensionHours * 3_600_000;
+  let sessionId = profile.activeExtensionSessionId;
+  const existing = sessionId ? await ctx.db.get(sessionId) : null;
+  if (!existing || existing.status === "expired") {
+    sessionId = await ctx.db.insert("miningExtensionSessions", {
+      userId: profile.userId,
+      day: dayKey(now),
+      adsCompleted: EXTENSION_ADS_REQUIRED,
+      normalMinedAtUnlockNex: config.dailyLimitNex,
+      extensionHours: config.extensionHours,
+      grantedAt: profile.extensionUnlockedAt ?? now,
+      startedAt: now,
+      endsAt,
+      minedNex: 0,
+      status: "active",
+      createdAt: profile.extensionUnlockedAt ?? now,
+    });
+  } else {
+    await ctx.db.patch(existing._id, {
+      status: "active",
+      startedAt: now,
+      endsAt,
+    });
+  }
+
+  await ctx.db.patch(profile._id, {
+    activeExtensionSessionId: sessionId,
+    miningExtensionStartedAt: now,
+    miningExtensionEndsAt: endsAt,
+    miningSessionStartedAt: now,
+    miningSessionHeartbeatAt: now,
+    miningSessionCreditedAt: now,
+    miningPausedAt: undefined,
+    miningLastStartedDay: dayKey(now),
+    awayMiningStartedAt: undefined,
+    firstMiningStartedAt: profile.firstMiningStartedAt ?? now,
+    lastActiveAt: now,
+  });
+  return {
+    started: true as const,
+    alreadyActive: false as const,
+    endsAt,
+    creditedNex,
+  };
 }
 // ---------------------------------------------------------------------------
 // Notifications + audit
