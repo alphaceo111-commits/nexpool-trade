@@ -123,7 +123,7 @@ export function MiningPopupsProvider({ children }: { children: ReactNode }) {
     active || (isExtension && extensionStartable) ? required : completed;
   const ctaDisabled = isExtension
     ? startingExtra || active || (!extensionStartable && (!providerReady || !extensionEligible || unlockedToday))
-    : Boolean(busy) || active || !providerReady;
+    : Boolean(busy) || active || (!providerReady);
 
   const title = isExtension
     ? extensionStartable
@@ -156,17 +156,18 @@ export function MiningPopupsProvider({ children }: { children: ReactNode }) {
   } else if (isExtension && extensionStartable) {
     statusNote = "Unlocked but not started. No extra NEX is accruing yet.";
   } else if (isExtension && extensionExpired) {
-    statusNote = `The ${extensionHours}-hour session has completed. It earned ${formatNex(mining?.extensionMinedNex ?? 0)} NEX outside the normal cap.`;
+        statusNote = `The ${extensionHours}-hour session has completed. It earned ${formatNex(mining?.extensionMinedNex ?? 0)} NEX outside the normal cap.`;
   } else if (isExtension && unlockedToday) {
     statusNote = `The ${extensionHours}-hour extension was already granted today.`;
-  } else if (!providerReady) {
-    statusNote =
-      "Verified ads are unavailable until Monetag's server confirmation callback is configured. No progress can be granted manually.";
-  } else if (isExtension && remaining > 0) {
+  } else if (remaining > 0) {
     statusNote = `Reach the normal daily cap first — ${formatNex(remaining)} NEX remaining.`;
+  } else if (mineToday === 0) {
+    statusNote = "Start normal mining first.";
   }
 
-  let ctaLabel = isExtension ? `Unlock ${extensionHours} Hours` : `Watch ${required} Ads`;
+  let ctaLabel = isExtension
+    ? `Unlock ${extensionHours} Hours`
+    : `Watch verified ad · ${Math.min(completed + 1, required)}/${required}`;
   if (startingExtra) ctaLabel = "Starting extra mining";
   else if (busy) ctaLabel = "Waiting for provider confirmation";
   else if (active) {
@@ -176,11 +177,12 @@ export function MiningPopupsProvider({ children }: { children: ReactNode }) {
   } else if (isExtension && extensionStartable) ctaLabel = "Start Extra Mining";
   else if (isExtension && extensionExpired) ctaLabel = "Session completed today";
   else if (isExtension && unlockedToday) ctaLabel = "Unlocked today";
-  else if (isExtension && !extensionEligible) ctaLabel = "Reach the daily cap first";
   else if (!providerReady) ctaLabel = "Verification unavailable";
+  else if (remaining > 0) ctaLabel = "Reach the daily cap first";
 
   const Icon = isExtension ? Megaphone : Plane;
   const contextValue = useMemo(() => ({ openMiningPopup }), [openMiningPopup]);
+
 
   const runPrimaryAction = async () => {
     if (!open || ctaDisabled) return;
@@ -208,19 +210,22 @@ export function MiningPopupsProvider({ children }: { children: ReactNode }) {
             ? error.message
             : "Extra mining could not start.",
         );
-      } finally {
-        setStartingExtra(false);
+      } else if (!providerReady) {
+        setNotice(
+          "Verified ads are unavailable until Monetag's server confirmation callback is configured. No progress can be granted manually.",
+        );
+      } else if (isExtension && remaining > 0) {
+        setNotice(
+          `Reach the normal daily cap first — ${formatNex(remaining)} NEX remaining.`,
+        );
+      } else if (mineToday === 0) {
+        setNotice(
+          "Start a normal mining session before the extension unlock can begin.",
+        );
+      } else {
+        const result = await watchAd(open);
+        setNotice(result.message);
       }
-      return;
-    }
-    if (!providerReady) {
-      setNotice(
-        "Monetag server verification is not configured, so this unlock is unavailable. Opening or clicking an ad cannot grant progress.",
-      );
-      return;
-    }
-    const result = await watchAd(open);
-    setNotice(result.message);
   };
 
   return (
@@ -298,6 +303,7 @@ export function MiningPopupsProvider({ children }: { children: ReactNode }) {
                   disabled={ctaDisabled}
                   className="w-full gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em]"
                 >
+
                   {busy || startingExtra ? <Spinner /> : <Play className="size-3.5" />}
                   {ctaLabel}
                 </Button>
