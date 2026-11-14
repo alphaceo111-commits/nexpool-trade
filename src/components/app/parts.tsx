@@ -99,16 +99,16 @@ export function Panel({
   return (
     <section
       className={cn(
-        "relative overflow-hidden rounded-md border border-border/80 bg-card",
+        "premium-card relative overflow-hidden rounded-2xl",
         className,
       )}
     >
       {(eyebrow || title || action) && (
-        <header className="flex items-start justify-between gap-3 border-b border-border/70 px-4 py-3">
+        <header className="flex items-start justify-between gap-3 px-5 py-4">
           <div className="min-w-0">
             {eyebrow ? <p className="label-xs">{eyebrow}</p> : null}
             {title ? (
-              <h2 className="mt-1 truncate text-[13px] font-semibold tracking-tight">
+              <h2 className="mt-1.5 text-[15px] font-semibold tracking-tight text-foreground">
                 {title}
               </h2>
             ) : null}
@@ -116,7 +116,14 @@ export function Panel({
           {action}
         </header>
       )}
-      <div className={cn("p-4", bodyClassName)}>{children}</div>
+      <div
+        className={cn(
+          eyebrow || title || action ? "px-5 pb-5" : "p-5",
+          bodyClassName,
+        )}
+      >
+        {children}
+      </div>
     </section>
   );
 }
@@ -133,16 +140,16 @@ export function SectionHeading({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex items-end justify-between gap-3">
+    <div className="flex flex-wrap items-end justify-between gap-3">
       <div className="min-w-0">
         <p className="label-xs">
-          {index ? `${index} — ` : ""}NEXPOOL
+          {index ? `${index} · ` : ""}NEXPOOL
         </p>
-        <h1 className="mt-1 text-lg font-semibold tracking-tight sm:text-xl">
+        <h1 className="mt-1.5 text-[26px] font-semibold leading-tight tracking-[-0.035em] sm:text-[30px]">
           {title}
         </h1>
         {body ? (
-          <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
+          <p className="mt-1.5 max-w-2xl text-[12.5px] leading-relaxed text-muted-foreground">
             {body}
           </p>
         ) : null}
@@ -185,13 +192,13 @@ export function StatusPill({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-sm border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em]",
+        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold tracking-[0.01em]",
         TONE_BORDER[tone],
         TONE_TEXT[tone],
         className,
       )}
     >
-      {dot ? <span className="size-1 rounded-full bg-current" /> : null}
+      {dot ? <span className="size-1.5 rounded-full bg-current" /> : null}
       {children}
     </span>
   );
@@ -225,9 +232,9 @@ export function Metric({
   return (
     <div className={cn("min-w-0", align === "right" && "text-right", className)}>
       <p className="label-xs">{label}</p>
-      <p className={cn("num mt-1 text-base font-semibold", toneClass)}>{value}</p>
+      <p className={cn("num mt-1.5 text-[17px] font-semibold leading-none", toneClass)}>{value}</p>
       {sub ? (
-        <p className="mt-0.5 font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
+        <p className="mt-1 font-mono text-[8.5px] uppercase tracking-[0.09em] text-muted-foreground">
           {sub}
         </p>
       ) : null}
@@ -259,9 +266,9 @@ export function ProgressBar({
           : "bg-primary";
   return (
     <div className={cn("relative", className)}>
-      <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+      <div className="h-2 w-full overflow-hidden rounded-full bg-white/[0.055] ring-1 ring-white/[0.035]">
         <div
-          className={cn("h-full rounded-full transition-[width] duration-700", fill)}
+          className={cn("h-full rounded-full transition-[width] duration-700 ease-out", fill)}
           style={{ width: `${pct}%` }}
         />
       </div>
@@ -337,14 +344,14 @@ export function EmptyState({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center border border-dashed border-border/80 px-5 py-9 text-center">
+    <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border/70 bg-white/[0.012] px-5 py-10 text-center">
       {icon ? (
-        <div className="mb-3 flex size-9 items-center justify-center rounded-full border border-border bg-secondary/60 text-muted-foreground">
+        <div className="mb-3 flex size-11 items-center justify-center rounded-full border border-border bg-secondary/60 text-muted-foreground">
           {icon}
         </div>
       ) : null}
-      <p className="text-[13px] font-medium">{title}</p>
-      <p className="mt-1 max-w-sm text-[11.5px] leading-relaxed text-muted-foreground">
+      <p className="text-[14px] font-semibold">{title}</p>
+      <p className="mt-1.5 max-w-sm text-[12px] leading-relaxed text-muted-foreground">
         {body}
       </p>
       {action ? <div className="mt-4">{action}</div> : null}
@@ -358,7 +365,7 @@ export function LoadingBlock({ rows = 3 }: { rows?: number }) {
       {Array.from({ length: rows }).map((_, index) => (
         <div
           key={index}
-          className="h-16 animate-pulse rounded-md border border-border/60 bg-card/60"
+          className="h-20 animate-pulse rounded-2xl border border-border/60 bg-card/60"
         />
       ))}
     </div>

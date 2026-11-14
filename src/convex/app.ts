@@ -326,6 +326,7 @@ export const snapshot = query({
         totalNex: roundNex(balance.availableNex + balance.reservedNex),
         lifetimeMinedNex: roundNex(balance.lifetimeMinedNex),
         lifetimeTaskNex: roundNex(balance.lifetimeTaskNex),
+        lifetimeAdNex: roundNex(balance.lifetimeAdNex ?? 0),
         lastSettledAt: balance.lastSettledAt,
       },
       config: {
@@ -342,6 +343,7 @@ export const snapshot = query({
         miningEnabled: config.miningEnabled,
         awayMiningHours: config.awayMiningHours,
         extensionHours: config.extensionHours,
+        adRewardNex: config.adRewardNex,
         withdrawalsEnabled: config.withdrawalsEnabled,
       },
       mining,
@@ -658,6 +660,7 @@ export const history = query({
         v.literal("mining"),
         v.literal("task"),
         v.literal("referral"),
+        v.literal("ad"),
         v.literal("withdrawal"),
         v.literal("deposit"),
         v.literal("refund"),
@@ -712,6 +715,7 @@ export const history = query({
       lifetime: {
         minedNex: roundNex(balance.lifetimeMinedNex),
         taskNex: roundNex(balance.lifetimeTaskNex),
+        adNex: roundNex(balance.lifetimeAdNex ?? 0),
       },
       nexUsdRate: config.nexUsdRate,
     };

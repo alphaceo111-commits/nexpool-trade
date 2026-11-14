@@ -136,7 +136,7 @@ export default function Withdraw() {
       </Link>
 
       <SectionHeading
-        index="07"
+        index="Payouts"
         title="Withdraw NEX"
         body="Server-adjudicated payout eligibility. Nothing is approved in the browser."
         action={
@@ -168,7 +168,7 @@ export default function Withdraw() {
                   decoding="async"
                   className="aspect-[4/5] w-full object-contain transition-transform duration-500 group-hover:scale-[1.02]"
                 />
-                <span className="absolute top-2 right-2 flex size-6 items-center justify-center rounded-sm border border-white/15 bg-black/45 text-white/80 backdrop-blur-sm transition-colors group-hover:border-white/30 group-hover:text-white">
+                <span className="absolute top-2 right-2 flex size-6 items-center justify-center rounded-xl border border-white/15 bg-black/45 text-white/80 backdrop-blur-sm transition-colors group-hover:border-white/30 group-hover:text-white">
                   <Maximize2 className="size-3" />
                 </span>
               </button>
@@ -240,7 +240,7 @@ export default function Withdraw() {
       <div className="grid gap-3.5 lg:grid-cols-12">
         <Panel className="lg:col-span-7" eyebrow="Payout request" title="Amount">
           {!account.walletAddress ? (
-            <div className="mb-3 flex items-start gap-2 rounded-sm border border-warn/40 bg-warn/[0.05] p-2.5">
+            <div className="mb-3 flex items-start gap-2 rounded-xl border border-warn/40 bg-warn/[0.05] p-2.5">
               <Wallet className="mt-0.5 size-3.5 shrink-0 text-warn" />
               <div className="flex-1">
                 <p className="text-[11px] font-medium">No destination wallet</p>
@@ -256,7 +256,7 @@ export default function Withdraw() {
               </Link>
             </div>
           ) : (
-            <div className="mb-3 flex items-center justify-between rounded-sm border border-border/70 bg-panel/60 px-2.5 py-2">
+            <div className="mb-3 flex items-center justify-between rounded-xl border border-border/70 bg-panel/60 px-2.5 py-2">
               <div>
                 <p className="label-xs">Destination</p>
                 <p className="num mt-0.5 text-[10.5px]">{account.walletAddress}</p>
@@ -320,7 +320,7 @@ export default function Withdraw() {
             <p className="mt-2 text-[10.5px] text-warn">{formError}</p>
           ) : null}
 
-          <div className="mt-3 rounded-sm border border-border/70 bg-background/40 p-3">
+          <div className="mt-3 rounded-xl border border-border/70 bg-background/40 p-3">
             <p className="label-xs">Quote preview</p>
             <div className="mt-2 space-y-1.5">
               {[
@@ -355,7 +355,7 @@ export default function Withdraw() {
           </div>
 
           {error ? (
-            <p className="mt-2 rounded-sm border border-down/40 bg-down/[0.06] px-2.5 py-2 text-[10.5px] leading-relaxed text-down">
+            <p className="mt-2 rounded-xl border border-down/40 bg-down/[0.06] px-2.5 py-2 text-[10.5px] leading-relaxed text-down">
               {error}
             </p>
           ) : null}
@@ -421,7 +421,7 @@ export default function Withdraw() {
                 </div>
               ))}
             </div>
-            <div className="mt-3 rounded-sm border border-border/70 bg-panel/60 p-2.5">
+            <div className="mt-3 rounded-xl border border-border/70 bg-panel/60 p-2.5">
               <p className="flex items-start gap-1.5 text-[10px] leading-relaxed text-muted-foreground">
                 <Info className="mt-0.5 size-3 shrink-0" />
                 The $2.50 target is a published reference, not a promise of
@@ -493,7 +493,7 @@ export default function Withdraw() {
                   {artwork.description}
                 </DialogDescription>
               </DialogHeader>
-              <div className="overflow-hidden rounded-sm border border-border/70 bg-black">
+              <div className="overflow-hidden rounded-xl border border-border/70 bg-black">
                 <img
                   src={artwork.src}
                   alt={artwork.alt}

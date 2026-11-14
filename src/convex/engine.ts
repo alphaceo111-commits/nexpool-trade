@@ -31,6 +31,7 @@ export type AppConfigShape = {
   miningEnabledAt: number;
   awayMiningHours: number;
   extensionHours: number;
+  adRewardNex: number;
   miningEconomyVersion: number;
   withdrawalsEnabled: boolean;
   ownerUserId?: Id<"users">;
@@ -41,6 +42,8 @@ export const AWAY_ADS_REQUIRED = 10;
 export const EXTENSION_ADS_REQUIRED = 20;
 export const AWAY_MINING_HOURS_DEFAULT = 24;
 export const EXTENSION_HOURS_DEFAULT = 5;
+/** One verified provider postback credits one hour of base-rate NEX by default. */
+export const AD_REWARD_NEX_DEFAULT = 0.0000005;
 /** Bumped whenever the server economy needs a one-time stored-config patch. */
 export const MINING_ECONOMY_VERSION = 2;
 
@@ -72,6 +75,7 @@ export const CONFIG_DEFAULTS: AppConfigShape = {
   miningEnabledAt: 0,
   awayMiningHours: AWAY_MINING_HOURS_DEFAULT,
   extensionHours: EXTENSION_HOURS_DEFAULT,
+  adRewardNex: AD_REWARD_NEX_DEFAULT,
   miningEconomyVersion: MINING_ECONOMY_VERSION,
   withdrawalsEnabled: false,
 };
@@ -99,6 +103,7 @@ export async function loadConfig(
     miningEnabledAt: row.miningEnabledAt,
     awayMiningHours: row.awayMiningHours ?? CONFIG_DEFAULTS.awayMiningHours,
     extensionHours: row.extensionHours ?? CONFIG_DEFAULTS.extensionHours,
+    adRewardNex: row.adRewardNex ?? CONFIG_DEFAULTS.adRewardNex,
     miningEconomyVersion: row.miningEconomyVersion ?? 0,
     withdrawalsEnabled: row.withdrawalsEnabled,
     ownerUserId: row.ownerUserId,
@@ -245,6 +250,7 @@ export async function ensureAccount(
       reservedNex: 0,
       lifetimeMinedNex: 0,
       lifetimeTaskNex: 0,
+      lifetimeAdNex: 0,
       lastSettledAt: now,
       updatedAt: now,
     });
@@ -1047,6 +1053,7 @@ export type MiningSnapshot = {
   projectedAccrualNex: number;
   resetAt: number;
   lastSettledAt: number;
+  lastHeartbeatAt: number | null;
   uncollectedMs: number;
   capReachedAt: number | null;
   sessionActive: boolean;
@@ -1206,6 +1213,7 @@ export async function readMiningSnapshot(
     projectedAccrualNex: pendingNex,
     resetAt: nextUtcMidnight(now),
     lastSettledAt: balance.lastSettledAt,
+    lastHeartbeatAt: profile.miningSessionHeartbeatAt ?? null,
     uncollectedMs: pendingMs,
     capReachedAt,
     sessionActive,
@@ -1258,7 +1266,9 @@ export async function readMiningSnapshot(
         expiredToday: extensionExpiredToday,
       },
       pending:
-        pendingChallenge && pendingChallenge.expiresAt > now
+        pendingChallenge &&
+        pendingChallenge.purpose !== "task" &&
+        pendingChallenge.expiresAt > now
           ? {
               id: String(pendingChallenge._id),
               purpose: pendingChallenge.purpose,

@@ -105,6 +105,8 @@ function Wallet() {
 
   const { balance, config, account, withdrawal, mining } = snapshot;
   const usd = balance.totalNex * config.nexUsdRate;
+  const lifetime =
+    balance.lifetimeMinedNex + balance.lifetimeTaskNex + balance.lifetimeAdNex;
   const pendingWithdrawal = withdrawal.history.find(
     (row) => row.status === "requested" || row.status === "reviewing",
   );
@@ -128,9 +130,9 @@ function Wallet() {
   return (
     <div className="space-y-3.5">
       <SectionHeading
-        index="05"
-        title="Wallet"
-        body="Confirmed NEX, payout readiness and the on-chain TON link."
+        index="Wallet"
+        title="Your wallet"
+        body="Confirmed NEX, target valuation, payout readiness and the verified TON destination."
         action={
           <StatusPill tone={withdrawal.eligible ? "up" : "warn"}>
             {withdrawal.eligible ? "Withdrawals open" : `${metCount}/${withdrawal.requirements.length} checks`}
@@ -138,56 +140,51 @@ function Wallet() {
         }
       />
 
-      <Panel className="relative overflow-hidden" bodyClassName="p-4 sm:p-5">
-        <div className="pointer-events-none absolute -top-16 -right-10 size-44 rounded-full bg-gold/10 blur-3xl" />
-        <div className="relative">
-          <p className="label-xs">Total NEX balance</p>
-          <div className="mt-1 flex flex-wrap items-end gap-2">
-            <p className="num gold-glow text-[38px] leading-none font-semibold text-gold">
-              {formatNex(balance.totalNex)}
+      <section className="premium-card card-sheen relative overflow-hidden rounded-3xl p-5 sm:p-7">
+        <div className="pointer-events-none absolute -right-20 -top-24 size-64 rounded-full bg-gold/[0.09] blur-3xl" />
+        <div className="relative flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="label-xs">Portfolio balance</p>
+            <div className="mt-2 flex flex-wrap items-end gap-2.5">
+              <p className="num gold-ink text-[38px] font-semibold leading-none tracking-[-0.055em] sm:text-[62px]">
+                {formatNex(balance.totalNex)}
+              </p>
+              <span className="mb-1.5 text-[11px] font-semibold text-muted-foreground">NEX</span>
+            </div>
+            <p className="mt-3 num text-[14px] font-medium">
+              ≈ {formatUsd(usd)}{" "}
+              <span className="font-sans text-[10px] font-medium tracking-normal text-muted-foreground">
+                at {formatUsd(config.nexUsdRate)} / NEX target
+              </span>
             </p>
-            <span className="mb-1 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-              NEX
-            </span>
+            <p className="mt-2 max-w-md text-[10.5px] leading-relaxed text-muted-foreground">
+              Target valuation only. Redemption depends on the published reward
+              policy and the funded payout pool; it is not guaranteed cash.
+            </p>
           </div>
-          <p className="mt-2 num text-[12px]">
-            ≈ {formatUsd(usd)}{" "}
-            <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
-              target rate {formatUsd(config.nexUsdRate)}/NEX
-            </span>
-          </p>
-          <p className="mt-1.5 max-w-md text-[10px] leading-relaxed text-muted-foreground">
-            Target valuation only. Redeemable USD depends on the published reward
-            policy and the funded payout pool.
-          </p>
+          <div className="flex flex-col items-end gap-2">
+            <StatusPill tone={withdrawal.eligible ? "up" : "warn"}>
+              {withdrawal.eligible ? "Withdrawal ready" : `${metCount}/${withdrawal.requirements.length} checks`}
+            </StatusPill>
+            <div className="flex gap-2">
+              <Button asChild size="sm" variant="outline" className="gap-1.5">
+                <Link to="/app/deposit"><ArrowDownToLine className="size-3.5" /> Deposit</Link>
+              </Button>
+              <Button asChild size="sm" className="gap-1.5">
+                <Link to="/app/withdraw"><ArrowUpRight className="size-3.5" /> Withdraw</Link>
+              </Button>
+            </div>
+          </div>
         </div>
 
-        <div className="relative mt-4 grid grid-cols-2 gap-x-3 gap-y-3 border-t border-border/70 pt-3 sm:grid-cols-4">
-          <Metric
-            label="Available"
-            value={formatNex(balance.availableNex)}
-            sub="confirmed"
-          />
-          <Metric
-            label="Pending"
-            value={formatNex(mining.projectedAccrualNex)}
-            sub="accruing, unsettled"
-            tone="up"
-          />
-          <Metric
-            label="Reserved"
-            value={formatNex(balance.reservedNex)}
-            sub="withdrawal review"
-            tone="warn"
-          />
-          <Metric
-            label="Redeemable"
-            value={formatNex(balance.availableNex)}
-            sub={withdrawal.eligible ? "eligible" : "rules pending"}
-            tone="gold"
-          />
+        <div className="relative mt-6 grid grid-cols-2 gap-x-5 gap-y-4 border-t border-border/60 pt-5 sm:grid-cols-3 lg:grid-cols-5">
+          <Metric label="Available" value={formatNex(balance.availableNex)} sub="confirmed, spendable" />
+          <Metric label="Accruing" value={formatNex(mining.projectedAccrualNex)} sub="unsettled window" tone="up" />
+          <Metric label="Reserved" value={formatNex(balance.reservedNex)} sub="withdrawal review" tone="warn" />
+          <Metric label="Lifetime" value={formatNex(lifetime)} sub="mined + tasks + ads" tone="gold" />
+          <Metric label="Ad rewards" value={formatNex(balance.lifetimeAdNex)} sub="lifetime confirmed" tone="gold" />
         </div>
-      </Panel>
+      </section>
 
       <div className="grid gap-3.5 lg:grid-cols-12">
         <Panel
@@ -202,9 +199,9 @@ function Wallet() {
         >
           {account.walletAddress ? (
             <div className="space-y-3">
-              <div className="rounded-sm border border-border/70 bg-panel/60 p-3">
+              <div className="rounded-xl border border-border/70 bg-panel/60 p-3">
                 <div className="flex items-center gap-2">
-                  <span className="flex size-8 items-center justify-center rounded-sm border border-gold/30 bg-gold/10">
+                  <span className="flex size-8 items-center justify-center rounded-xl border border-gold/30 bg-gold/10">
                     <WalletIcon className="size-4 text-gold" />
                   </span>
                   <div className="min-w-0 flex-1">
@@ -232,7 +229,7 @@ function Wallet() {
                   </button>
                 </div>
               </div>
-              <div className="flex items-start gap-2 rounded-sm border border-warn/30 bg-warn/[0.05] p-2.5">
+              <div className="flex items-start gap-2 rounded-xl border border-warn/30 bg-warn/[0.05] p-2.5">
                 <ShieldAlert className="mt-0.5 size-3.5 shrink-0 text-warn" />
                 <p className="text-[10px] leading-relaxed text-muted-foreground">
                   A linked address is not proof of ownership. Payouts are reviewed
@@ -318,13 +315,13 @@ function Wallet() {
           <div className="mt-3 grid grid-cols-2 gap-1.5">
             <Link
               to="/app/deposit"
-              className="flex h-9 items-center justify-center gap-1.5 rounded-sm border border-border font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-foreground transition-colors hover:border-primary/40"
+              className="flex h-9 items-center justify-center gap-1.5 rounded-xl border border-border font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-foreground transition-colors hover:border-primary/40"
             >
               <ArrowDownToLine className="size-3.5" /> Deposit
             </Link>
             <Link
               to="/app/withdraw"
-              className="flex h-9 items-center justify-center gap-1.5 rounded-sm bg-primary font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-primary-foreground transition-opacity hover:opacity-90"
+              className="flex h-9 items-center justify-center gap-1.5 rounded-xl bg-primary font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-primary-foreground transition-opacity hover:opacity-90"
             >
               {withdrawal.eligible ? "Withdraw" : "Eligibility"}
               <ArrowUpRight className="size-3.5" />
@@ -428,7 +425,7 @@ function Wallet() {
         </Panel>
 
         <Panel className="lg:col-span-5" eyebrow="TON deposits" title="On-chain settlement">
-          <div className="flex items-start gap-2.5 rounded-sm border border-border/70 bg-panel/50 p-3">
+          <div className="flex items-start gap-2.5 rounded-xl border border-border/70 bg-panel/50 p-3">
             <Info className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
             <p className="text-[11px] leading-relaxed text-muted-foreground">
               TON paid from Telegram Wallet goes to the NEXPOOL treasury. NEX is
@@ -437,7 +434,7 @@ function Wallet() {
               Open Deposit to lock a quote or check the current capability.
             </p>
           </div>
-          <div className="mt-3 flex items-start gap-2 rounded-sm border border-border/70 bg-panel/50 p-3">
+          <div className="mt-3 flex items-start gap-2 rounded-xl border border-border/70 bg-panel/50 p-3">
             <Lock className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
             <p className="text-[11px] leading-relaxed text-muted-foreground">
               Only the operator can broadcast a payout, and only after the request

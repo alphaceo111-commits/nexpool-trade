@@ -26,6 +26,7 @@ import {
   Users,
   Wallet,
 } from "lucide-react";
+import { motion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router";
 
@@ -66,55 +67,53 @@ const TITLES: Record<string, string> = {
   "/app/notifications": "Notifications",
 };
 
-function MiningPill({
-  status,
-}: {
-  status: "active" | "paused" | "limit" | "restricted";
-}) {
-  if (status === "active")
+function MiningPill({ state }: { state: string }) {
+  if (state === "ACTIVE" || state === "BACKGROUND_ACTIVE")
     return <StatusPill tone="up">Mining live</StatusPill>;
-  if (status === "limit") return <StatusPill tone="warn">Daily cap</StatusPill>;
-  if (status === "restricted")
-    return <StatusPill tone="down">Restricted</StatusPill>;
-  return <StatusPill tone="muted">Paused</StatusPill>;
+  if (state === "CAP_REACHED")
+    return <StatusPill tone="gold">Daily cap</StatusPill>;
+  if (state === "PAUSED") return <StatusPill tone="down">Paused</StatusPill>;
+  return <StatusPill tone="muted">Mining idle</StatusPill>;
 }
 
 function SidebarBody() {
   const snapshot = useQuery(api.app.snapshot);
 
   return (
-    <div className="flex h-full flex-col bg-sidebar">
-      <div className="flex h-16 items-center gap-2 border-b border-sidebar-border px-4">
-        <BrandMark className="text-primary" />
+    <div className="flex h-full flex-col bg-sidebar/95">
+      <div className="flex h-[76px] items-center gap-2.5 px-5">
+        <span className="flex size-9 items-center justify-center rounded-xl border border-primary/25 bg-primary/10">
+          <BrandMark className="text-primary" />
+        </span>
         <div className="leading-none">
-          <p className="font-mono text-[13px] font-bold tracking-[0.18em]">
+          <p className="font-display text-[15px] font-bold tracking-[0.16em]">
             NEXPOOL
           </p>
-          <p className="mt-1 font-mono text-[8px] uppercase tracking-[0.28em] text-muted-foreground">
-            rewards desk
+          <p className="mt-1.5 font-mono text-[8px] uppercase tracking-[0.2em] text-muted-foreground">
+            rewards account
           </p>
         </div>
-        <span className="ml-auto size-1.5 animate-signal-pulse rounded-full bg-up" />
+        <span className="ml-auto size-2 animate-signal-pulse rounded-full bg-up" />
       </div>
 
-      <div className="border-b border-sidebar-border px-4 py-3.5">
-        <p className="label-xs">Confirmed balance</p>
-        <p className="num mt-1 text-xl font-semibold text-gold">
+      <div className="mx-3 rounded-2xl border border-border/70 bg-card/70 px-4 py-4">
+        <p className="label-xs">Portfolio balance</p>
+        <p className="num gold-ink mt-2 text-[27px] font-semibold leading-none">
           {snapshot ? formatNex(snapshot.balance.totalNex) : "—"}
-          <span className="ml-1 font-mono text-[10px] text-muted-foreground">
+          <span className="ml-1.5 font-sans text-[10px] font-medium tracking-normal text-muted-foreground">
             NEX
           </span>
         </p>
-        <div className="mt-2 flex items-center gap-1.5">
-          {snapshot ? <MiningPill status={snapshot.mining.status} /> : null}
-          <span className="font-mono text-[9px] text-muted-foreground">
+        <div className="mt-3 flex items-center gap-1.5">
+          {snapshot ? <MiningPill state={snapshot.mining.state} /> : null}
+          <span className="font-mono text-[8.5px] text-muted-foreground">
             {snapshot?.account.nexId ?? ""}
           </span>
         </div>
       </div>
 
-      <nav className="flex-1 space-y-0.5 overflow-y-auto p-2">
-        <p className="label-xs px-2 pt-2 pb-2">Mining account</p>
+      <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-5">
+        <p className="label-xs px-3 pb-2">Main</p>
         {NAV.map((item) => (
           <NavLink
             key={item.to}
@@ -122,41 +121,45 @@ function SidebarBody() {
             end={item.end}
             className={({ isActive }) =>
               cn(
-                "group relative flex items-center gap-2.5 rounded-sm border-l-2 px-3 py-2.5 font-mono text-[10.5px] uppercase tracking-[0.12em] transition-colors",
+                "group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-[12.5px] font-semibold transition-all",
                 isActive
-                  ? "border-primary bg-sidebar-accent text-foreground"
-                  : "border-transparent text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+                  ? "bg-white/[0.07] text-foreground"
+                  : "text-muted-foreground hover:bg-white/[0.035] hover:text-foreground",
               )
             }
           >
             {({ isActive }) => (
               <>
-                <item.icon
+                <span
                   className={cn(
-                    "size-3.5",
-                    isActive ? "text-primary" : "text-muted-foreground",
+                    "flex size-8 items-center justify-center rounded-lg border transition-colors",
+                    isActive
+                      ? "border-primary/25 bg-primary/12 text-primary"
+                      : "border-transparent text-muted-foreground",
                   )}
-                />
+                >
+                  <item.icon className="size-4" />
+                </span>
                 {item.label}
                 {isActive ? (
-                  <span className="ml-auto size-1 bg-primary" aria-hidden="true" />
+                  <span className="ml-auto size-1.5 rounded-full bg-primary" aria-hidden="true" />
                 ) : null}
               </>
             )}
           </NavLink>
         ))}
 
-        <p className="label-xs px-2 pt-4 pb-2">Account</p>
+        <p className="label-xs px-3 pt-6 pb-2">Account</p>
         {ACCOUNT_NAV.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
             className={({ isActive }) =>
               cn(
-                "group relative flex items-center gap-2.5 rounded-sm border-l-2 px-3 py-2.5 font-mono text-[10.5px] uppercase tracking-[0.12em] transition-colors",
+                "group flex items-center gap-3 rounded-xl px-3 py-2.5 text-[12px] font-medium transition-all",
                 isActive
-                  ? "border-primary bg-sidebar-accent text-foreground"
-                  : "border-transparent text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+                  ? "bg-white/[0.055] text-foreground"
+                  : "text-muted-foreground hover:bg-white/[0.035] hover:text-foreground",
               )
             }
           >
@@ -164,7 +167,7 @@ function SidebarBody() {
               <>
                 <item.icon
                   className={cn(
-                    "size-3.5",
+                    "size-4",
                     isActive ? "text-primary" : "text-muted-foreground",
                   )}
                 />
@@ -173,12 +176,11 @@ function SidebarBody() {
             )}
           </NavLink>
         ))}
-
       </nav>
 
-      <div className="border-t border-sidebar-border p-2">
-        <div className="flex items-center gap-2 px-1 py-1">
-          <div className="flex size-8 shrink-0 items-center justify-center overflow-hidden border border-sidebar-border bg-panel font-mono text-[10px] font-semibold text-gold">
+      <div className="border-t border-sidebar-border p-3">
+        <div className="flex items-center gap-2.5 rounded-xl bg-white/[0.035] px-2.5 py-2.5">
+          <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-gold/25 bg-gold/10 font-mono text-[10px] font-semibold text-gold">
             {snapshot?.account.photoUrl ? (
               <img
                 src={snapshot.account.photoUrl}
@@ -365,40 +367,39 @@ export default function AppShell() {
       </aside>
 
       <div className="lg:pl-[248px]">
-        <header className="sticky top-0 z-30 border-b border-border/80 nav-blur safe-top">
-          <div className="mx-auto flex h-12 w-full max-w-[1120px] items-center gap-3 px-4 lg:h-14 lg:px-7">
-            <div className="flex items-center gap-2 lg:hidden">
-              <BrandMark className="size-5 text-primary" />
-              <span className="font-mono text-[11px] font-bold tracking-[0.18em]">
+        <header className="sticky top-0 z-30 nav-blur safe-top">
+          <div className="mx-auto flex h-[62px] w-full max-w-[1180px] items-center gap-2.5 px-4 lg:h-[72px] lg:px-8">
+            <div className="flex items-center gap-2.5 lg:hidden">
+              <span className="flex size-8 items-center justify-center rounded-xl border border-primary/25 bg-primary/10">
+                <BrandMark className="size-4 text-primary" />
+              </span>
+              <span className="font-display text-[12px] font-bold tracking-[0.17em]">
                 NEXPOOL
               </span>
             </div>
-            <div className="hidden min-w-0 items-center gap-3 lg:flex">
-              <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+            <div className="hidden min-w-0 items-center gap-4 lg:flex">
+              <span className="text-[15px] font-semibold tracking-tight">
                 {title}
               </span>
-              <span className="h-3 w-px bg-border" />
-              <span className="num text-[11px] text-gold">
+              <span className="h-4 w-px bg-border" />
+              <span className="num text-[12px] font-medium text-gold">
                 {formatNex(snapshot.balance.totalNex)} NEX
               </span>
             </div>
-            <span className="ml-auto flex items-center gap-2 lg:hidden">
-              <MiningPill status={snapshot.mining.status} />
+            <span className="ml-auto flex items-center gap-2">
+              <MiningPill state={snapshot.mining.state} />
             </span>
-            <span className="hidden lg:flex">
-              <MiningPill status={snapshot.mining.status} />
-            </span>
-            <span className="num ml-1 hidden border border-border px-2 py-1 text-[9px] uppercase tracking-[0.1em] text-muted-foreground sm:block">
+            <span className="hidden rounded-full border border-border/80 bg-white/[0.02] px-2.5 py-1 font-mono text-[8.5px] uppercase tracking-[0.08em] text-muted-foreground sm:block">
               {snapshot.account.nexId}
             </span>
             <NavLink
               to="/app/notifications"
               aria-label="Notifications"
-              className="relative flex size-8 items-center justify-center rounded-sm border border-border/80 text-muted-foreground transition-colors hover:text-foreground"
+              className="relative flex size-9 items-center justify-center rounded-full border border-border/80 bg-white/[0.02] text-muted-foreground transition-colors hover:text-foreground"
             >
-              <Bell className="size-3.5" />
+              <Bell className="size-4" />
               {snapshot.notifications.unread > 0 ? (
-                <span className="absolute -top-1 -right-1 flex size-3.5 items-center justify-center rounded-full bg-primary font-mono text-[8px] font-bold text-primary-foreground">
+                <span className="absolute -top-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full bg-primary font-mono text-[8px] font-bold text-primary-foreground ring-2 ring-background">
                   {Math.min(9, snapshot.notifications.unread)}
                 </span>
               ) : null}
@@ -406,7 +407,7 @@ export default function AppShell() {
             <NavLink
               to="/app/profile"
               aria-label="Profile"
-              className="flex size-8 items-center justify-center overflow-hidden rounded-sm border border-border/80 font-mono text-[9px] font-semibold text-gold transition-colors hover:text-foreground lg:hidden"
+              className="flex size-9 items-center justify-center overflow-hidden rounded-full border border-gold/25 bg-gold/10 font-mono text-[9px] font-semibold text-gold transition-opacity hover:opacity-80"
             >
               {snapshot.account.photoUrl ? (
                 <img
@@ -422,16 +423,22 @@ export default function AppShell() {
           </div>
         </header>
 
-        <main className="mx-auto w-full max-w-[1120px] px-4 pt-4 pb-28 sm:px-5 lg:px-7 lg:pt-6 lg:pb-12">
+        <motion.main
+          key={location.pathname}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
+          className="mx-auto w-full max-w-[1180px] px-4 pt-5 pb-32 sm:px-5 lg:px-8 lg:pt-8 lg:pb-14"
+        >
           <Outlet />
-        </main>
+        </motion.main>
       </div>
 
         <nav
           aria-label="Main navigation"
-          className="fixed inset-x-0 bottom-0 z-40 border-t border-border/80 nav-blur bottom-nav lg:hidden"
+          className="fixed inset-x-0 bottom-0 z-40 border-t border-border/60 nav-blur bottom-nav lg:hidden"
         >
-          <div className="mx-auto grid max-w-lg grid-cols-5">
+          <div className="mx-auto grid max-w-xl grid-cols-5 px-2">
             {NAV.map((item) => (
               <NavLink
                 key={item.to}
@@ -439,20 +446,22 @@ export default function AppShell() {
                 end={item.end}
                 className={({ isActive }) =>
                   cn(
-                    "relative flex flex-col items-center gap-1 py-2 transition-colors",
+                    "relative flex flex-col items-center gap-1 rounded-2xl py-2.5 text-[9px] font-semibold transition-all",
                     isActive ? "text-primary" : "text-muted-foreground",
                   )
                 }
               >
                 {({ isActive }) => (
                   <>
-                    {isActive ? (
-                      <span className="absolute top-0 h-[2px] w-6 rounded-full bg-primary" />
-                    ) : null}
-                    <item.icon className="size-[18px]" />
-                    <span className="font-mono text-[8.5px] uppercase tracking-[0.08em]">
-                      {item.label}
+                    <span
+                      className={cn(
+                        "flex h-7 min-w-10 items-center justify-center rounded-full transition-all",
+                        isActive ? "bg-primary/12" : "bg-transparent",
+                      )}
+                    >
+                      <item.icon className="size-[19px]" strokeWidth={isActive ? 2.2 : 1.8} />
                     </span>
+                    <span className="tracking-[0.01em]">{item.label}</span>
                   </>
                 )}
               </NavLink>

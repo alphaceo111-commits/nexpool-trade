@@ -3,6 +3,7 @@ import { useMutation } from "convex/react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { showVerifiedRewardedAd } from "@/lib/monetag";
+import { formatNex } from "@/components/app/parts";
 
 export type MiningAdPurpose = "away" | "extension";
 
@@ -82,28 +83,34 @@ export function useVerifiedMiningAd(extensionHours: number) {
         return { status: "pending", message };
       }
       if (confirmation.status === "already") {
-        const message = "This Monetag view was already counted.";
+        const message = "This Monetag view was already counted. No second reward was issued.";
         toast.info(message);
         return { status: "already", message };
       }
 
+      const reward =
+        "rewardNex" in confirmation && typeof confirmation.rewardNex === "number"
+          ? confirmation.rewardNex
+          : 0;
+      const rewardNote = reward > 0 ? ` +${formatNex(reward)} NEX credited to your balance.` : "";
+
       if (confirmation.status === "granted") {
         const message =
           purpose === "away"
-            ? "Background mining unlocked. Normal mining now continues on server time while the app is closed."
-            : `${extensionHours}-hour extension unlocked. Extension NEX is recorded separately from the normal daily cap.`;
+            ? `Background mining unlocked.${rewardNote} It only continues a session you already started.`
+            : `${extensionHours}-hour extension unlocked.${rewardNote} Press Start Extra Mining to begin the clock.`;
         toast.success(
           purpose === "away"
-            ? "Background mining unlocked."
-            : `${extensionHours}-hour extension unlocked.`,
+            ? `Background mining unlocked.${rewardNote}`
+            : `${extensionHours}-hour extension unlocked.${rewardNote}`,
         );
         return { status: "granted", message };
       }
 
-      const message = `Verified Monetag view counted. ${confirmation.progress}/${challenge.required} ${
+      const message = `Verified Monetag view counted.${rewardNote} ${confirmation.progress}/${challenge.required} ${
         purpose === "away" ? "background-mining" : "extension"
       } ads completed.`;
-      toast.success("Verified Monetag view counted.");
+      toast.success(`Verified Monetag view counted.${rewardNote}`);
       return { status: "recorded", message };
     } catch (error) {
       const message =

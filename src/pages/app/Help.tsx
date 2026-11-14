@@ -183,7 +183,7 @@ export default function Help() {
 
       <Panel eyebrow="Support" title="Report a problem">
         {sent ? (
-          <div className="rounded-sm border border-up/30 bg-up/[0.06] p-3">
+          <div className="rounded-xl border border-up/30 bg-up/[0.06] p-3">
             <p className="flex items-center gap-2 text-[12px] font-medium">
               <Sparkles className="size-3.5 text-up" /> Report received
             </p>
@@ -210,7 +210,7 @@ export default function Help() {
                     type="button"
                     onClick={() => setTopic(item)}
                     className={cn(
-                      "rounded-sm border px-2 py-1 font-mono text-[9px] uppercase tracking-[0.1em] transition-colors",
+                      "rounded-xl border px-2 py-1 font-mono text-[9px] uppercase tracking-[0.1em] transition-colors",
                       topic === item
                         ? "border-primary/40 bg-primary/10 text-primary"
                         : "border-border/70 text-muted-foreground hover:text-foreground",
@@ -227,7 +227,7 @@ export default function Help() {
               rows={4}
               maxLength={2000}
               placeholder="Describe what happened. Include amounts and times if relevant — never share seed phrases or private keys."
-              className="w-full resize-none rounded-sm border border-border bg-background px-2.5 py-2 text-[12px] leading-relaxed outline-none placeholder:text-muted-foreground/70 focus:border-primary/50"
+              className="w-full resize-none rounded-xl border border-border bg-background px-2.5 py-2 text-[12px] leading-relaxed outline-none placeholder:text-muted-foreground/70 focus:border-primary/50"
             />
             <div className="flex items-center justify-between gap-2">
               <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
@@ -279,7 +279,7 @@ export default function Help() {
 
 function ServiceRow({ label, open }: { label: string; open: boolean }) {
   return (
-    <div className="flex items-center justify-between rounded-sm border border-border/70 px-2.5 py-1.5">
+    <div className="flex items-center justify-between rounded-xl border border-border/70 px-2.5 py-1.5">
       <span className="text-[11.5px] text-muted-foreground">{label}</span>
       <StatusPill tone={open ? "up" : "warn"}>
         {open ? "Open" : "Paused"}

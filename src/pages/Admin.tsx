@@ -76,6 +76,7 @@ function configPayload(config: AdminConfig, overrides: Partial<AdminConfig> = {}
     miningEnabled: config.miningEnabled,
     awayMiningHours: config.awayMiningHours,
     extensionHours: config.extensionHours,
+    adRewardNex: config.adRewardNex,
     withdrawalsEnabled: config.withdrawalsEnabled,
     ...overrides,
   };
@@ -753,6 +754,17 @@ function EconomyForm({ config }: { config: AdminConfig }) {
                 onChange={(value) => set("extensionHours", value)}
                 step="1"
                 min="1"
+              />
+            </Field>
+            <Field
+              label="Verified-ad reward (NEX)"
+              hint="Credited once per provider-valued postback. 0 disables the cash reward."
+            >
+              <NumberInput
+                value={form.adRewardNex}
+                onChange={(value) => set("adRewardNex", value)}
+                step="any"
+                min="0"
               />
             </Field>
             <Field label="NEX target (USD)" hint="Published reference, not a liquidity promise.">

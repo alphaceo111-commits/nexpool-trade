@@ -2,6 +2,11 @@ import { v } from "convex/values";
 import { internalMutation, mutation } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import { claimedLevel } from "./levels";
+import {
+  createCompletionForTask,
+  grantTaskRewardForCompletion,
+} from "./tasks";
 import {
   AWAY_ADS_REQUIRED,
   EXTENSION_ADS_REQUIRED,
@@ -26,7 +31,7 @@ const AD_CHALLENGE_TTL_MS = 15 * 60_000;
 const POSTBACK_GRACE_MS = 2 * 3_600_000;
 const PROVIDER = "monetag" as const;
 
-type AdPurpose = "away" | "extension";
+type AdPurpose = "away" | "extension" | "task";
 
 type AdCompletionResult =
   | { recorded: false; granted: false; progress: 0 }
@@ -35,9 +40,61 @@ type AdCompletionResult =
       granted: boolean;
       purpose: AdPurpose;
       progress: number;
+      rewardNex: number;
+      rewardCredited: boolean;
       endsAt?: number;
       unlocked?: boolean;
     };
+
+/**
+ * The unique ledger reference is the second idempotency rail after the
+ * challenge status. Convex serializes mutations, and the `by_user_refId`
+ * index makes it impossible for a replayed ymid to mint a second reward.
+ */
+async function creditVerifiedAdReward(
+  ctx: MutationCtx,
+  profile: Doc<"profiles">,
+  challenge: Doc<"miningAdChallenges">,
+  config: Awaited<ReturnType<typeof loadConfig>>,
+  now: number,
+) {
+  const amount = roundNex(Math.max(0, config.adRewardNex));
+  if (amount <= 0) return { amount: 0, credited: false };
+
+  const refId = `monetag:${challenge._id}`;
+  const existing = await ctx.db
+    .query("ledger")
+    .withIndex("by_user_refId", (q) =>
+      q.eq("userId", profile.userId).eq("refId", refId),
+    )
+    .first();
+  if (existing) {
+    return { amount: existing.amountNex, credited: false };
+  }
+
+  const balance = await ctx.db
+    .query("balances")
+    .withIndex("by_user", (q) => q.eq("userId", profile.userId))
+    .first();
+  if (!balance) return { amount: 0, credited: false };
+
+  await ctx.db.patch(balance._id, {
+    availableNex: roundNex(balance.availableNex + amount),
+    lifetimeAdNex: roundNex((balance.lifetimeAdNex ?? 0) + amount),
+    updatedAt: now,
+  });
+  await ctx.db.insert("ledger", {
+    userId: profile.userId,
+    kind: "ad",
+    amountNex: amount,
+    memo: `Verified Monetag reward · ${
+      challenge.purpose === "away" ? "background" : "extension"
+    }`,
+    refId,
+    createdAt: now,
+  });
+  return { amount, credited: true };
+}
 
 async function pendingChallenge(ctx: MutationCtx, userId: Id<"users">) {
   return await ctx.db
@@ -50,13 +107,19 @@ async function pendingChallenge(ctx: MutationCtx, userId: Id<"users">) {
 }
 
 function requiredAds(purpose: AdPurpose) {
-  return purpose === "away" ? AWAY_ADS_REQUIRED : EXTENSION_ADS_REQUIRED;
+  return purpose === "away"
+    ? AWAY_ADS_REQUIRED
+    : purpose === "extension"
+      ? EXTENSION_ADS_REQUIRED
+      : 1;
 }
 
 function adProgress(profile: Doc<"profiles">, purpose: AdPurpose) {
   return purpose === "away"
     ? profile.awayMiningAdProgress ?? 0
-    : profile.extensionAdProgress ?? 0;
+    : purpose === "extension"
+      ? profile.extensionAdProgress ?? 0
+      : 0;
 }
 
 function cleanPrice(value: number | undefined) {
@@ -91,6 +154,39 @@ async function applyAdCompletion(
     return { recorded: false, granted: false, progress: 0 };
   }
 
+  if (challenge.purpose === "task") {
+    if (!challenge.taskId) {
+      return { recorded: false, granted: false, progress: 0 };
+    }
+    const completionId = await createCompletionForTask(ctx, {
+      taskId: challenge.taskId,
+      userId: profile.userId,
+    });
+    const granted = await grantTaskRewardForCompletion(ctx, {
+      completionId,
+      verifiedBy: "monetag-postback",
+      note: `Monetag valued postback confirmed for ymid ${challenge._id}.`,
+    });
+    const reward = "rewardNex" in granted ? (granted.rewardNex ?? 0) : 0;
+    await ctx.db.patch(challenge._id, {
+      status: "completed",
+      completedAt: now,
+      providerEvent: "monetag-postback",
+      providerReference: String(challenge._id),
+      grantedEntitlement: true,
+      rewardNex: reward,
+      rewardCreditedAt: now,
+    });
+    return {
+      recorded: true,
+      granted: true,
+      purpose: "task",
+      progress: 1,
+      rewardNex: reward,
+      rewardCredited: reward > 0,
+    };
+  }
+
   await ctx.db.patch(challenge._id, {
     status: "completed",
     completedAt: now,
@@ -98,16 +194,25 @@ async function applyAdCompletion(
     providerReference: String(challenge._id),
   });
 
+  const config = await loadConfig(ctx);
+  const reward = await creditVerifiedAdReward(
+    ctx,
+    profile,
+    challenge,
+    config,
+    now,
+  );
   const finish = async (result: AdCompletionResult) => {
     if (result.recorded) {
       await ctx.db.patch(challenge._id, {
         grantedEntitlement: result.granted,
+        rewardNex: result.rewardNex,
+        rewardCreditedAt: reward.credited ? now : challenge.rewardCreditedAt,
       });
     }
     return result;
   };
 
-  const config = await loadConfig(ctx);
   const today = dayKey(now);
 
   if (challenge.purpose === "away") {
@@ -117,6 +222,8 @@ async function applyAdCompletion(
         granted: false,
         purpose: "away",
         progress: 0,
+        rewardNex: reward.amount,
+        rewardCredited: reward.credited,
       });
     }
     const next = (profile.awayMiningAdProgress ?? 0) + 1;
@@ -142,6 +249,8 @@ async function applyAdCompletion(
         granted: true,
         purpose: "away",
         progress: 0,
+        rewardNex: reward.amount,
+        rewardCredited: reward.credited,
       });
     }
     await ctx.db.patch(profile._id, { awayMiningAdProgress: next });
@@ -150,6 +259,8 @@ async function applyAdCompletion(
       granted: false,
       purpose: "away",
       progress: next,
+      rewardNex: reward.amount,
+      rewardCredited: reward.credited,
     });
   }
 
@@ -175,6 +286,8 @@ async function applyAdCompletion(
       granted: false,
       purpose: "extension",
       progress: 0,
+      rewardNex: reward.amount,
+      rewardCredited: reward.credited,
     });
   }
 
@@ -213,6 +326,8 @@ async function applyAdCompletion(
       granted: true,
       purpose: "extension",
       progress: 0,
+      rewardNex: reward.amount,
+      rewardCredited: reward.credited,
       unlocked: true,
     });
   }
@@ -222,6 +337,8 @@ async function applyAdCompletion(
     granted: false,
     purpose: "extension",
     progress: next,
+    rewardNex: reward.amount,
+    rewardCredited: reward.credited,
   });
 }
 
@@ -232,7 +349,12 @@ async function applyAdCompletion(
  */
 export const requestAd = mutation({
   args: {
-    purpose: v.union(v.literal("away"), v.literal("extension")),
+    purpose: v.union(
+      v.literal("away"),
+      v.literal("extension"),
+      v.literal("task"),
+    ),
+    taskId: v.optional(v.id("tasks")),
   },
   handler: async (ctx, args) => {
     const { profile } = await requireProfile(ctx);
@@ -263,7 +385,10 @@ export const requestAd = mutation({
       pending.provider === PROVIDER &&
       pending.expiresAt > now
     ) {
-      if (pending.purpose === args.purpose) {
+      if (
+        pending.purpose === args.purpose &&
+        (args.purpose !== "task" || pending.taskId === args.taskId)
+      ) {
         return {
           challengeId: pending._id,
           ymid: String(pending._id),
@@ -277,6 +402,53 @@ export const requestAd = mutation({
     }
     if (pending) {
       await ctx.db.patch(pending._id, { status: "expired" });
+    }
+
+    if (args.purpose === "task") {
+      if (!args.taskId) throw new Error("This ad task is missing its campaign.");
+      const task = await ctx.db.get(args.taskId);
+      if (!task || task.status !== "active") {
+        throw new Error("This campaign is no longer available.");
+      }
+      if (task.expiresAt && task.expiresAt <= now) {
+        throw new Error("This campaign has expired.");
+      }
+      if (task.verification !== "in_app_ad") {
+        throw new Error("This campaign is not a verified rewarded-ad task.");
+      }
+      if (task.minLevel && (await claimedLevel(ctx, profile.userId)) < task.minLevel) {
+        throw new Error("Reach the required claimed level before opening this campaign.");
+      }
+      const completion = await ctx.db
+        .query("taskCompletions")
+        .withIndex("by_user_task", (q) =>
+          q.eq("userId", profile.userId).eq("taskId", args.taskId!),
+        )
+        .first();
+      if (completion?.status === "verified") {
+        throw new Error("You already completed this campaign.");
+      }
+      if (completion?.status === "pending") {
+        throw new Error("This task is already awaiting review. Do not start another view.");
+      }
+      const expiresAt = now + AD_CHALLENGE_TTL_MS;
+      const challengeId = await ctx.db.insert("miningAdChallenges", {
+        userId: profile.userId,
+        purpose: "task",
+        taskId: args.taskId,
+        provider: PROVIDER,
+        status: "pending",
+        createdAt: now,
+        expiresAt,
+      });
+      return {
+        challengeId,
+        ymid: String(challengeId),
+        purpose: "task" as const,
+        required: 1,
+        progress: 0,
+        expiresAt,
+      };
     }
 
     const dayRow = await ctx.db
@@ -389,10 +561,13 @@ export const confirmFromClient = mutation({
         granted,
         purpose: challenge.purpose,
         progress: adProgress(current, challenge.purpose),
+        rewardNex: challenge.rewardNex ?? 0,
         endsAt:
           challenge.purpose === "extension"
             ? (current.miningExtensionEndsAt ?? undefined)
-            : (current.awayMiningExpiresAt ?? undefined),
+            : challenge.purpose === "away"
+              ? (current.awayMiningExpiresAt ?? undefined)
+              : undefined,
       };
     };
     const now = Date.now();
@@ -477,6 +652,7 @@ export const confirmFromClient = mutation({
       granted: result.granted,
       purpose: result.purpose,
       progress: result.progress,
+      rewardNex: result.rewardNex,
       endsAt: result.endsAt,
     };
   },
@@ -497,10 +673,18 @@ export const recordMonetagPostback = internalMutation({
     estimatedPriceUsd: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const challengeId = ctx.db.normalizeId(
-      "miningAdChallenges",
-      args.ymid,
-    );
+    const ymid = args.ymid.trim();
+    if (!ymid || ymid.length > 128) return { recorded: false as const };
+    const rewardEventType = args.rewardEventType.trim();
+    if (rewardEventType !== "valued" && rewardEventType !== "non_valued") {
+      return { recorded: false as const };
+    }
+    const eventType = args.eventType.trim().slice(0, 64) || "impression";
+    // A click is never a completed rewarded view, even if a malformed provider
+    // callback labels the price as valued.
+    if (eventType === "click") return { recorded: false as const };
+
+    const challengeId = ctx.db.normalizeId("miningAdChallenges", ymid);
     if (!challengeId) return { recorded: false as const };
     const challenge = await ctx.db.get(challengeId);
     if (!challenge || challenge.provider !== PROVIDER) {
@@ -515,7 +699,7 @@ export const recordMonetagPostback = internalMutation({
     if (
       args.telegramId &&
       profile.telegramId &&
-      args.telegramId !== profile.telegramId
+      args.telegramId.trim() !== profile.telegramId
     ) {
       return { recorded: false as const };
     }
@@ -526,7 +710,10 @@ export const recordMonetagPostback = internalMutation({
         recorded: true as const,
         valued: challenge.postbackRewardEventType === "valued",
         applied: false as const,
+        duplicate: true as const,
         granted: challenge.grantedEntitlement ?? false,
+        rewardNex: challenge.rewardNex ?? 0,
+        rewardCreditedAt: challenge.rewardCreditedAt,
       };
     }
     if (challenge.status === "expired" || challenge.status === "rejected") {
@@ -537,11 +724,11 @@ export const recordMonetagPostback = internalMutation({
       return { recorded: false as const };
     }
 
-    const valued = args.rewardEventType === "valued";
+    const valued = rewardEventType === "valued";
     const price = cleanPrice(args.estimatedPriceUsd);
     const patch: Partial<Doc<"miningAdChallenges">> = {
-      providerEvent: args.eventType,
-      providerReference: args.ymid,
+      providerEvent: eventType,
+      providerReference: ymid,
     };
     if (valued) {
       patch.postbackValuedAt = challenge.postbackValuedAt ?? now;
@@ -581,6 +768,8 @@ export const recordMonetagPostback = internalMutation({
       valued: true as const,
       applied: result.recorded,
       granted: result.granted,
+      rewardNex: result.recorded ? result.rewardNex : 0,
+      rewardCredited: result.recorded ? result.rewardCredited : false,
     };
   },
 });

@@ -158,6 +158,9 @@ const schema = defineSchema(
       extensionHours: v.optional(v.number()),
       // One-time patch marker for the verified-ad economy.
       miningEconomyVersion: v.optional(v.number()),
+      // Confirmed NEX credited once for each provider-valued ad postback.
+      // The amount is operator-controlled and capped by updateConfig.
+      adRewardNex: v.optional(v.number()),
       withdrawalsEnabled: v.boolean(),
       ownerUserId: v.optional(v.id("users")),
       // Set once the starter sponsor missions have been published.
@@ -329,7 +332,7 @@ const schema = defineSchema(
     // are reported without counting them as views.
     adVerificationEvents: defineTable({
       userId: v.id("users"),
-      purpose: v.union(v.literal("away"), v.literal("extension")),
+      purpose: v.union(v.literal("away"), v.literal("extension"), v.literal("task")),
       provider: v.string(),
       outcome: v.union(
         v.literal("verified"),
@@ -353,6 +356,7 @@ const schema = defineSchema(
       reservedNex: v.number(),
       lifetimeMinedNex: v.number(),
       lifetimeTaskNex: v.number(),
+      lifetimeAdNex: v.optional(v.number()),
       lastSettledAt: v.number(),
       updatedAt: v.number(),
     }).index("by_user", ["userId"]),
@@ -392,7 +396,10 @@ const schema = defineSchema(
     // a click or the mere opening of an ad can never complete one.
     miningAdChallenges: defineTable({
       userId: v.id("users"),
-      purpose: v.union(v.literal("away"), v.literal("extension")),
+      purpose: v.union(v.literal("away"), v.literal("extension"), v.literal("task")),
+      // Only present for a task-linked Monetag challenge. The task reward is
+      // granted by the shared task verifier after the provider postback.
+      taskId: v.optional(v.id("tasks")),
       provider: v.string(),
       status: v.union(
         v.literal("pending"),
@@ -416,6 +423,10 @@ const schema = defineSchema(
       postbackValuedAt: v.optional(v.number()),
       postbackRewardEventType: v.optional(v.string()),
       postbackEstimatedPriceUsd: v.optional(v.number()),
+      // Confirmed NEX reward for this ymid. The ledger refId is also unique,
+      // making a replay idempotent even if a future migration rewrites status.
+      rewardNex: v.optional(v.number()),
+      rewardCreditedAt: v.optional(v.number()),
       // Set when this challenge actually granted its purpose entitlement, so
       // a delayed client poll can report the correct result after the postback
       // has already settled it.
@@ -458,6 +469,7 @@ const schema = defineSchema(
         v.literal("mining"),
         v.literal("task"),
         v.literal("referral"),
+        v.literal("ad"),
         v.literal("withdrawal"),
         v.literal("deposit"),
         v.literal("refund"),

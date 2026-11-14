@@ -76,7 +76,7 @@ export default function Notifications() {
       </Link>
 
       <SectionHeading
-        index="07"
+        index="Inbox"
         title="Notifications"
         body="Confirmed mining, task, referral and payout events."
         action={
@@ -125,7 +125,7 @@ export default function Notifications() {
                   >
                     <span
                       className={cn(
-                        "mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-sm border",
+                        "mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-xl border",
                         meta.tone === "gold"
                           ? "border-gold/30 bg-gold/10 text-gold"
                           : meta.tone === "up"

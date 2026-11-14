@@ -47,11 +47,11 @@ export async function seedStarterMissions(ctx: MutationCtx) {
       sponsor: "NEXPOOL sponsor desk",
       category: "advertisement",
       description:
-        "Watch one rewarded sponsor ad. The ad network must complete the view and the backend must time it, so closing early earns nothing.",
+        "Watch one rewarded sponsor ad. Monetag must confirm a valued view with its authenticated server postback; closing early earns nothing.",
       instructions: [
-        "Tap Watch rewarded ad — a full-screen sponsored ad opens.",
+        "Tap Watch verified ad — a full-screen sponsored ad opens.",
         "Watch it to the end. Closing early cancels the reward.",
-        "The claim unlocks after the server-timed minimum, then the backend credits NEX.",
+        "Monetag sends its signed postback; the backend credits the task NEX once.",
       ],
       rewardNex: 0.25,
       speedBonusNexPerHour: 0.02,
@@ -59,7 +59,7 @@ export async function seedStarterMissions(ctx: MutationCtx) {
       verification: "in_app_ad",
       minViewSeconds: 15,
       verificationNote:
-        "The rewarded ad must finish and the server must measure the minimum view length. Neither the ad promise nor the click alone credits NEX.",
+        "The rewarded ad must finish and Monetag must send a secret-authenticated valued postback. A click, a client timer or an ad promise never credits NEX.",
       status: "active",
       createdAt: now,
       createdBy: "nexpool-seed",

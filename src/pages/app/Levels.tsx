@@ -60,7 +60,7 @@ export default function Levels() {
   return (
     <div className="space-y-3">
       <SectionHeading
-        index="05"
+        index="Progress"
         title="Progression ladder"
         body="XP comes only from backend-verified activity. Each level must be claimed in order, pays once, and adds a permanent mining-speed step."
         action={
@@ -155,7 +155,7 @@ export default function Levels() {
                 <div className="flex items-start gap-3">
                   <span
                     className={cn(
-                      "mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-sm border font-mono text-[11px] font-semibold",
+                      "mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl border font-mono text-[11px] font-semibold",
                       claimed
                         ? "border-up/40 bg-up/10 text-up"
                         : claimable

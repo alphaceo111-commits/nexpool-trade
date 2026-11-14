@@ -113,7 +113,7 @@ function Deposit() {
     return (
       <div className="space-y-3">
         <SectionHeading
-          index="06"
+          index="Deposits"
           title="Deposit"
           body="Buy NEX with TON from your Telegram Wallet."
         />
@@ -275,7 +275,7 @@ function Deposit() {
   return (
     <div className="space-y-3">
       <SectionHeading
-        index="06"
+        index="Deposits"
         title="Deposit"
         body="Buy NEX with TON from your Telegram Wallet. Credited only after on-chain verification."
         action={
@@ -357,7 +357,7 @@ function Deposit() {
                       type="button"
                       onClick={() => setAmount(String(preset))}
                       className={cn(
-                        "rounded-sm border px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.1em] transition-colors",
+                        "rounded-xl border px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.1em] transition-colors",
                         amount === String(preset)
                           ? "border-primary/40 bg-primary/10 text-primary"
                           : "border-border/70 text-muted-foreground hover:bg-secondary/50 hover:text-foreground",
@@ -369,7 +369,7 @@ function Deposit() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2 rounded-sm border border-border/70 bg-secondary/20 p-3">
+              <div className="grid grid-cols-2 gap-2 rounded-xl border border-border/70 bg-secondary/20 p-3">
                 <Metric
                   label="You pay"
                   value={`${amountValid ? parsed.toFixed(2) : "—"} TON`}
@@ -391,7 +391,7 @@ function Deposit() {
                 />
               </div>
 
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-sm border border-border/70 px-3 py-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/70 px-3 py-2.5">
                 <span className="flex items-center gap-2 text-[11.5px]">
                   <Wallet className="size-3.5 text-primary" />
                   {wallet ? (
@@ -453,7 +453,7 @@ function Deposit() {
               }
             >
               <div className="space-y-3">
-                <div className="rounded-sm border border-primary/30 bg-primary/[0.05] p-3">
+                <div className="rounded-xl border border-primary/30 bg-primary/[0.05] p-3">
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
                       <p className="label-xs">Comment / memo (required)</p>
@@ -465,7 +465,7 @@ function Deposit() {
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between gap-2 rounded-sm border border-border/70 px-3 py-2.5">
+                <div className="flex items-center justify-between gap-2 rounded-xl border border-border/70 px-3 py-2.5">
                   <div className="min-w-0">
                     <p className="label-xs">Treasury address · TON mainnet</p>
                     <p className="num mt-0.5 truncate text-[11.5px]">
@@ -688,7 +688,7 @@ function Deposit() {
                   <Link
                     key={source.kind}
                     to={to}
-                    className="flex items-center justify-between rounded-sm border border-border/70 px-2.5 py-2 transition-colors hover:border-primary/40 hover:bg-secondary/40"
+                    className="flex items-center justify-between rounded-xl border border-border/70 px-2.5 py-2 transition-colors hover:border-primary/40 hover:bg-secondary/40"
                   >
                     <span className="flex items-center gap-2 text-[12px]">
                       <Icon className="size-3.5 text-primary" />

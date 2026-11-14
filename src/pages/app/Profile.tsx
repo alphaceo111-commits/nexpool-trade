@@ -150,14 +150,14 @@ function ProfileView({ snapshot }: { snapshot: Snapshot }) {
   return (
     <div className="space-y-3.5">
       <SectionHeading
-        index="09"
-        title="Profile & settings"
-        body="Account identity, notification routing, policies and support."
+        index="Profile"
+        title="Account & preferences"
+        body="Your verified identity, display preferences, notification routing and support."
       />
 
-      <Panel eyebrow="Account" bodyClassName="p-4">
-        <div className="flex items-center gap-3">
-          <div className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border bg-secondary font-mono text-sm font-semibold text-gold">
+      <Panel eyebrow="Account" bodyClassName="p-5" className="card-sheen">
+        <div className="flex items-center gap-3.5">
+          <div className="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-full border border-gold/25 bg-gold/10 font-mono text-sm font-semibold text-gold">
             {account.photoUrl ? (
               <img
                 src={account.photoUrl}
@@ -190,7 +190,7 @@ function ProfileView({ snapshot }: { snapshot: Snapshot }) {
           </StatusPill>
         </div>
 
-        <div className="mt-3 grid grid-cols-2 gap-2 border-t border-border/70 pt-3">
+        <div className="mt-4 grid grid-cols-2 gap-3 border-t border-border/60 pt-4 sm:grid-cols-3 lg:grid-cols-5">
           <div>
             <p className="label-xs">Telegram</p>
             <p className="mt-1 flex items-center gap-1.5 text-[11px]">
@@ -221,6 +221,12 @@ function ProfileView({ snapshot }: { snapshot: Snapshot }) {
             <p className="label-xs">Compliance</p>
             <p className="mt-1 text-[11px]">
               {account.complianceCleared ? "Cleared" : "Review pending"}
+            </p>
+          </div>
+          <div>
+            <p className="label-xs">Ad rewards</p>
+            <p className="num mt-1 text-[11px] text-gold">
+              {formatNex(balance.lifetimeAdNex)} NEX
             </p>
           </div>
         </div>

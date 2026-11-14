@@ -1,7 +1,7 @@
 import { api } from "@/convex/_generated/api";
 import type { FunctionReturnType } from "convex/server";
 import { useAction, useMutation, useQuery } from "convex/react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import {
   BadgeCheck,
@@ -38,7 +38,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { openExternal } from "@/lib/telegram";
-import { showRewardedAd } from "@/lib/monetag";
+import { useVerifiedTaskAd } from "@/hooks/use-verified-task-ad";
 
 type TaskFeed = NonNullable<FunctionReturnType<typeof api.app.taskFeed>>;
 type TaskRow = TaskFeed[number];
@@ -69,7 +69,7 @@ const VERIFICATION_LABEL: Record<TaskRow["verification"], string> = {
   telegram_group: "Telegram group membership",
   telegram_bot: "Sponsor bot start event",
   provider_ad: "Advertising provider event",
-  in_app_ad: "Rewarded sponsor ad, server-timed",
+  in_app_ad: "Monetag rewarded ad, provider postback",
   social: "Public social action",
   manual: "Operator review",
 };
@@ -106,24 +106,13 @@ export default function Tasks() {
     status: "verified" | "rejected" | "pending" | "unavailable";
     message: string;
   } | null>(null);
-  // Local ticker that mirrors the backend-timed sponsored view.
-  const [viewStart, setViewStart] = useState<number | null>(null);
-  const [clock, setClock] = useState(() => Date.now());
-  // The rewarded ad must actually finish before the claim button unlocks.
-  const [adPhase, setAdPhase] = useState<
-    "idle" | "loading" | "playing" | "done" | "failed"
-  >("idle");
+  const [adPhase, setAdPhase] = useState<"idle" | "loading" | "done" | "failed">("idle");
 
   const submit = useMutation(api.tasks.submit);
   const verify = useAction(api.tasks.verifyTask);
+  const { watchTaskAd } = useVerifiedTaskAd();
 
   const selected = feed?.find((task) => task.id === selectedId) ?? null;
-
-  useEffect(() => {
-    if (viewStart === null) return;
-    const id = window.setInterval(() => setClock(Date.now()), 500);
-    return () => window.clearInterval(id);
-  }, [viewStart]);
 
   if (!feed || !snapshot) {
     return (
@@ -146,7 +135,6 @@ export default function Tasks() {
   const openTask = (task: TaskRow) => {
     setSelectedId(task.id);
     setResult(null);
-    setViewStart(null);
     setAdPhase("idle");
   };
 
@@ -154,46 +142,24 @@ export default function Tasks() {
     setBusy(true);
     setResult(null);
     setAdPhase("loading");
-    // Start the ad inside the tap so the network keeps the user gesture, then
-    // stamp the server timer that actually gates the reward.
-    const ad = showRewardedAd();
     try {
-      await submit({ taskId: task.id });
-      setViewStart(Date.now());
-      setClock(Date.now());
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Could not start the spot.";
-      setResult({ status: "unavailable", message });
-      setAdPhase("idle");
-      toast.error(message);
-      return;
+      const outcome = await watchTaskAd(task.id);
+      if (outcome.status === "failed" || outcome.status === "rejected") {
+        setAdPhase("failed");
+        setResult({ status: "unavailable", message: outcome.message });
+        return;
+      }
+      setAdPhase("done");
+      setResult({
+        status: outcome.status === "pending" ? "pending" : "verified",
+        message: outcome.message,
+      });
     } finally {
       setBusy(false);
     }
-
-    setAdPhase("playing");
-    const watched = await ad;
-    if (!watched.ok) {
-      setAdPhase("failed");
-      setResult({ status: "unavailable", message: watched.reason });
-      toast.error(watched.reason);
-      return;
-    }
-    setAdPhase("done");
-    toast.success("Ad completed. Claim unlocks when the server timer is done.");
   };
 
   const adTask = selected?.verification === "in_app_ad";
-  const adSeconds = selected?.minViewSeconds ?? 15;
-  const adWatched =
-    viewStart === null
-      ? 0
-      : Math.min(adSeconds, Math.floor((clock - viewStart) / 1000));
-  const adRemaining = Math.max(0, adSeconds - adWatched);
-  const adNeedsWatch = adTask && (adPhase === "idle" || adPhase === "failed");
-  const adLocked =
-    adTask && !adNeedsWatch && (adPhase !== "done" || adRemaining > 0);
 
   const runVerify = async (task: TaskRow) => {
     setBusy(true);
@@ -237,7 +203,7 @@ export default function Tasks() {
   return (
     <div className="space-y-3.5">
       <SectionHeading
-        index="03"
+        index="Missions"
         title="Task centre"
         body="Rewards and speed bonuses land only after server-side verification."
         action={
@@ -275,7 +241,7 @@ export default function Tasks() {
                 type="button"
                 onClick={() => setCategory(item.key)}
                 className={cn(
-                  "flex items-center gap-1.5 rounded-sm border px-2.5 py-1.5 font-mono text-[9.5px] uppercase tracking-[0.08em] transition-colors",
+                  "flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 font-mono text-[9.5px] uppercase tracking-[0.08em] transition-colors",
                   category === item.key
                     ? "border-primary/50 bg-primary/10 text-primary"
                     : "border-border/80 bg-card text-muted-foreground hover:text-foreground",
@@ -331,7 +297,7 @@ export default function Tasks() {
               >
                 <div className="p-3.5">
                   <div className="flex items-start gap-2.5">
-                    <span className="flex size-8 shrink-0 items-center justify-center rounded-sm border border-border bg-secondary/50 text-muted-foreground">
+                    <span className="flex size-8 shrink-0 items-center justify-center rounded-xl border border-border bg-secondary/50 text-muted-foreground">
                       <meta.icon className="size-4" />
                     </span>
                     <div className="min-w-0 flex-1">
@@ -369,7 +335,7 @@ export default function Tasks() {
                   </div>
 
                   {task.completion?.note ? (
-                    <p className="mt-2 line-clamp-2 rounded-sm border border-border/60 bg-panel/60 px-2 py-1.5 text-[9.5px] leading-relaxed text-muted-foreground">
+                    <p className="mt-2 line-clamp-2 rounded-xl border border-border/60 bg-panel/60 px-2 py-1.5 text-[9.5px] leading-relaxed text-muted-foreground">
                       {task.completion.note}
                     </p>
                   ) : null}
@@ -381,7 +347,7 @@ export default function Tasks() {
                     state === "completed" ||
                     state === "expired" ||
                     state === "paused" ||
-                    (state === "pending" && task.verification !== "in_app_ad")
+                    state === "pending"
                   }
                   onClick={() => openTask(task)}
                   className={cn(
@@ -438,7 +404,6 @@ export default function Tasks() {
           if (!open) {
             setSelectedId(null);
             setResult(null);
-            setViewStart(null);
             setAdPhase("idle");
           }
         }}
@@ -459,19 +424,19 @@ export default function Tasks() {
               </DialogHeader>
 
               <div className="grid grid-cols-2 gap-2">
-                <div className="rounded-sm border border-gold/30 bg-gold/[0.06] px-2.5 py-2">
+                <div className="rounded-xl border border-gold/30 bg-gold/[0.06] px-2.5 py-2">
                   <p className="label-xs">Reward</p>
                   <p className="num mt-0.5 text-sm text-gold">
                     +{formatNex(selected.rewardNex)} NEX
                   </p>
                 </div>
-                <div className="rounded-sm border border-border bg-panel/60 px-2.5 py-2">
+                <div className="rounded-xl border border-border bg-panel/60 px-2.5 py-2">
                   <p className="label-xs">Speed bonus</p>
                   <p className="num mt-0.5 text-sm text-primary">
                     +{formatNex(selected.speedBonusNexPerHour)} NEX/h
                   </p>
                 </div>
-                <div className="col-span-2 flex items-center justify-between rounded-sm border border-up/30 bg-up/[0.06] px-2.5 py-2">
+                <div className="col-span-2 flex items-center justify-between rounded-xl border border-up/30 bg-up/[0.06] px-2.5 py-2">
                   <p className="label-xs">XP on verification</p>
                   <p className="num text-sm text-up">+{selected.xpReward} XP</p>
                 </div>
@@ -505,18 +470,20 @@ export default function Tasks() {
                 </ol>
               </div>
 
-              <div className="rounded-sm border border-border/70 bg-panel/60 p-2.5">
+              <div className="rounded-xl border border-border/70 bg-panel/60 p-2.5">
                 <p className="label-xs">Verification requirement</p>
                 <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
                   {VERIFICATION_LABEL[selected.verification]} —{" "}
-                  {selected.verificationNote}
+                  {selected.verification === "in_app_ad"
+                    ? "The backend credits this campaign only after a secret-authenticated Monetag postback reports a valued view. A client timer, click or open cannot release the reward."
+                    : selected.verificationNote}
                 </p>
               </div>
 
               {result ? (
                 <div
                   className={cn(
-                    "rounded-sm border px-3 py-2.5 text-[11px] leading-relaxed",
+                    "rounded-xl border px-3 py-2.5 text-[11px] leading-relaxed",
                     result.status === "verified"
                       ? "border-up/40 bg-up/[0.08] text-up"
                       : result.status === "rejected"
@@ -544,26 +511,16 @@ export default function Tasks() {
 
               <div className="flex flex-col gap-2">
                 {adTask ? (
-                  <>
-                    <div className="flex items-center justify-between font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
-                      <span>
-                        {adPhase === "playing"
-                          ? "Rewarded ad playing"
-                          : adPhase === "done"
-                            ? "Ad complete · server timer"
-                            : "Server-timed view"}
-                      </span>
-                      <span className="num text-primary">
-                        {adWatched}s / {adSeconds}s
-                      </span>
-                    </div>
-                    <div className="h-1 overflow-hidden rounded-full bg-border">
-                      <div
-                        className="h-full bg-primary transition-[width] duration-500"
-                        style={{ width: `${(adWatched / adSeconds) * 100}%` }}
-                      />
-                    </div>
-                  </>
+                  <div className="rounded-xl border border-primary/20 bg-primary/[0.035] px-3 py-2.5">
+                    <p className="flex items-center gap-1.5 font-mono text-[8.5px] uppercase tracking-[0.08em] text-primary">
+                      <BadgeCheck className="size-3" /> Provider-verified view
+                    </p>
+                    <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+                      Monetag issues a unique ymid for this view. The reward only
+                      posts after its server postback confirms a valued event; a click
+                      or an unfinished ad never counts.
+                    </p>
+                  </div>
                 ) : null}
                 {targetUrl(selected) && !adTask ? (
                   <Button
@@ -583,10 +540,10 @@ export default function Tasks() {
                     taskState(selected) === "completed" ||
                     taskState(selected) === "expired" ||
                     taskState(selected) === "paused" ||
-                    adLocked
+                    (adTask && result?.status === "pending")
                   }
                   onClick={() => {
-                    if (adTask && adNeedsWatch) {
+                    if (adTask) {
                       void startSpot(selected);
                     } else {
                       void runVerify(selected);
@@ -605,26 +562,17 @@ export default function Tasks() {
                     <>
                       <Spinner /> Opening sponsored ad
                     </>
-                  ) : adTask && adPhase === "playing" ? (
+                  ) : adTask && result?.status === "pending" ? (
                     <>
-                      <Clock className="size-3.5" /> Ad playing · finish to unlock
+                      <Clock className="size-3.5" /> Awaiting provider postback
                     </>
                   ) : adTask && adPhase === "failed" ? (
                     <>
-                      <Megaphone className="size-3.5" /> Retry rewarded ad
-                    </>
-                  ) : adTask && adPhase === "done" && adRemaining > 0 ? (
-                    <>
-                      <Clock className="size-3.5" /> Ad complete · {adRemaining}s
-                      server check
-                    </>
-                  ) : adTask && adNeedsWatch ? (
-                    <>
-                      <Megaphone className="size-3.5" /> Watch rewarded ad
+                      <Megaphone className="size-3.5" /> Retry verified ad
                     </>
                   ) : adTask ? (
                     <>
-                      <BadgeCheck className="size-3.5" /> Claim reward
+                      <Megaphone className="size-3.5" /> Watch verified ad
                     </>
                   ) : (
                     <>

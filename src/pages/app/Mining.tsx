@@ -1,15 +1,14 @@
 import { api } from "@/convex/_generated/api";
 import { useMiningPopups } from "@/components/app/mining-popups-context";
+import { MiningHeartbeat } from "@/components/app/MiningHeartbeat";
 import { useVerifiedMiningAd } from "@/hooks/use-verified-mining-ad";
 import { useMutation, useQuery } from "convex/react";
 import { Link } from "react-router";
 import { toast } from "sonner";
 import {
   Activity,
-  AlertTriangle,
   ArrowUpRight,
   BadgeCheck,
-  Clock,
   Gauge,
   History,
   Info,
@@ -23,13 +22,11 @@ import {
   Timer,
   Trophy,
   Users,
-  Zap,
 } from "lucide-react";
 import {
   EmptyState,
   formatDateTime,
   formatNex,
-  LiveMined,
   Metric,
   Panel,
   ProgressBar,
@@ -64,6 +61,20 @@ export default function Mining() {
   const [settling, setSettling] = useState(false);
   const [startingExtra, setStartingExtra] = useState(false);
   const [adNotice, setAdNotice] = useState<string | null>(null);
+  const [online, setOnline] = useState(() =>
+    typeof navigator === "undefined" ? true : navigator.onLine,
+  );
+
+  useEffect(() => {
+    const onOnline = () => setOnline(true);
+    const onOffline = () => setOnline(false);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
+  }, []);
 
   useEffect(() => {
     if (!adNotice) return;
@@ -73,13 +84,16 @@ export default function Mining() {
 
   if (!snapshot) {
     return (
-      <div className="space-y-3">
-        {Array.from({ length: 4 }).map((_, index) => (
-          <div
-            key={index}
-            className="h-28 animate-pulse rounded-md border border-border/60 bg-card/60"
-          />
-        ))}
+      <div className="space-y-4">
+        <div className="h-12 w-56 animate-pulse rounded-2xl bg-card/60" />
+        <div className="grid gap-4 lg:grid-cols-[1.08fr_0.92fr]">
+          <div className="h-[610px] animate-pulse rounded-3xl border border-border/60 bg-card/60" />
+          <div className="space-y-4">
+            <div className="h-44 animate-pulse rounded-2xl border border-border/60 bg-card/60" />
+            <div className="h-52 animate-pulse rounded-2xl border border-border/60 bg-card/60" />
+            <div className="h-48 animate-pulse rounded-2xl border border-border/60 bg-card/60" />
+          </div>
+        </div>
       </div>
     );
   }
@@ -124,9 +138,9 @@ export default function Mining() {
           toast.success(
             result.status === "limit"
               ? result.extensionReady
-                ? "Normal cap already reached. Your extra session is unlocked — press Start Extra Mining."
-                : "Normal cap already reached. Watch 20 verified ads below to unlock the extension."
-              : "Mining started. It runs only while this app is open.",
+                ? "Your extra session is unlocked. Press Start Extra Mining when you are ready."
+                : "Today's normal cap is already reached. Watch 20 verified ads to unlock the extension."
+              : "Mining started. The backend is now the source of truth for every reward.",
           );
         } else {
           toast.error("Mining is paused by the operator or your account.");
@@ -137,16 +151,14 @@ export default function Mining() {
       if (result.creditedNex > 0) {
         toast.success(`${formatNex(result.creditedNex)} NEX confirmed`);
       } else if (result.status === "limit") {
-        toast.info("Daily cap already reached. Accrual resumes at 00:00 UTC.");
+        toast.info("Normal daily cap reached. Your extension status is below.");
       } else if (result.status === "paused" || result.status === "restricted") {
         toast.error("Mining is not active for this account.");
       } else {
-        toast.info("Nothing to settle yet.");
+        toast.info("Nothing new to settle yet.");
       }
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Settlement failed.",
-      );
+      toast.error(error instanceof Error ? error.message : "Settlement failed.");
     } finally {
       setSettling(false);
     }
@@ -167,7 +179,7 @@ export default function Mining() {
       toast.success(
         result.alreadyActive
           ? "Your extra mining session is already running."
-          : `Extra mining started for ${config.extensionHours} hours. Its clock started now.`,
+          : `Extra mining started for ${config.extensionHours} hours.`,
       );
     } catch (error) {
       toast.error(
@@ -181,322 +193,277 @@ export default function Mining() {
   const stopNow = async () => {
     try {
       await pauseMining();
-      toast.success("Mining stopped. Background and heartbeat cannot resume it until you press Start again.");
+      toast.success(
+        "Mining stopped. Background and heartbeat cannot resume it until you press Start again.",
+      );
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not stop mining.");
     }
   };
 
+  const capProgress =
+    mining.todayLimitNex > 0
+      ? Math.min(100, (mining.todayMinedNex / mining.todayLimitNex) * 100)
+      : 0;
+
   return (
-    <div className="space-y-3.5">
+    <div className="space-y-5">
       <SectionHeading
-        index="02"
+        index="Earn / Mining"
         title="Mining engine"
-        body="Nano-NEX accrual on server time. Normal mining stops at the daily cap; verified ads can extend it."
+        body="A live view of server-time accrual. Your heartbeat proves presence; it never authorizes a new session."
         action={<StatusLabel state={mining.state} />}
       />
 
-      <Panel className="relative overflow-hidden" bodyClassName="p-0">
-        <div className="pointer-events-none absolute inset-0 terminal-grid opacity-25" />
-        <div className="relative p-4 sm:p-5">
-          <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="grid gap-4 xl:grid-cols-[1.08fr_0.92fr]">
+        <section className="premium-card card-sheen relative overflow-hidden rounded-3xl p-5 sm:p-7">
+          <div className="pointer-events-none absolute -top-28 left-1/2 h-64 w-80 -translate-x-1/2 rounded-full bg-primary/[0.035] blur-3xl" />
+          <div className="relative flex items-start justify-between gap-3">
             <div>
-              <p className="label-xs">Current mining rate</p>
-              <div className="mt-1 flex items-end gap-2">
-                <span className="num gold-glow text-[44px] leading-none font-semibold text-gold">
-                  {formatNex(speed.total)}
-                </span>
-                <span className="mb-1 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                  NEX / hour
-                </span>
-              </div>
-              <p className="mt-1 font-mono text-[8.5px] uppercase tracking-[0.08em] text-muted-foreground">
-                {speed.capped
-                  ? `base ${formatNex(speed.base)} · bonuses capped at 2×`
-                  : "base rate · server controlled"}
+              <p className="label-xs">Mining engine</p>
+              <p className="mt-1.5 text-[14px] font-semibold text-foreground">
+                {mining.state === "ACTIVE"
+                  ? "Server session in progress"
+                  : mining.state === "BACKGROUND_ACTIVE"
+                    ? "Background continuation active"
+                    : mining.state === "CAP_REACHED"
+                      ? "Normal allowance complete"
+                      : mining.state === "PAUSED"
+                        ? "Session paused"
+                        : "Ready when you are"}
               </p>
             </div>
-            <div className="flex flex-col items-end gap-1.5">
-              {active ? (
-                <span className="flex items-center gap-1.5 rounded-sm border border-up/40 bg-up/10 px-2 py-1 font-mono text-[9px] uppercase tracking-[0.14em] text-up">
-                  <span className="size-1.5 animate-signal-pulse rounded-full bg-up" />
-                  {extensionLive ? "extension live" : "accruing"}
-                </span>
-              ) : (
-                <StatusPill tone={mining.status === "limit" ? "warn" : "muted"}>
-                  {mining.status === "limit"
-                    ? "cap reached"
-                    : mining.status === "restricted"
-                      ? "restricted"
-                      : "paused"}
-                </StatusPill>
-              )}
-              <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
-                server rate
-              </span>
-            </div>
+            <span className="flex items-center gap-1.5 rounded-full border border-border/70 bg-white/[0.025] px-2.5 py-1 font-mono text-[8.5px] uppercase tracking-[0.08em] text-muted-foreground">
+              <span className={cn("size-1.5 rounded-full", active ? "animate-signal-pulse bg-up" : "bg-muted-foreground/60")} />
+              server time
+            </span>
           </div>
 
-          <div className="mt-5 rounded-sm border border-border/70 bg-background/40 p-3">
-            <div className="flex items-center justify-between">
-              <p className="label-xs">Normal daily cap</p>
-              <p className="num text-[10px] text-muted-foreground">
-                <LiveMined
-                  key={snapshot.serverNow}
-                  settledNex={mining.todayMinedNex}
-                  ratePerHour={speed.total}
-                  capNex={mining.todayLimitNex}
-                  enabled={mining.sessionActive && !extensionLive}
-                  className="text-foreground"
-                />{" "}
-                / {formatNex(mining.todayLimitNex)} NEX
-              </p>
+          <MiningHeartbeat
+            className="mt-3"
+            state={mining.state}
+            todayNex={mining.todayMinedNex}
+            capNex={mining.todayLimitNex}
+            speedNexPerHour={speed.total}
+            extensionNex={mining.extensionMinedNex}
+            serverNow={snapshot.serverNow + tick * 1000}
+            lastHeartbeatAt={mining.lastHeartbeatAt}
+            online={online}
+          />
+
+          <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <MiniStat label="Normal today" value={formatNex(mining.todayMinedNex)} sub="NEX confirmed" />
+            <MiniStat label="Remaining" value={formatNex(mining.remainingTodayNex)} sub="before normal cap" />
+            <MiniStat label="Total today" value={formatNex(mining.todayTotalNex)} sub="normal + extension" />
+            <MiniStat label="Reset in" value={countdown(remainingMs)} sub="00:00 UTC" mono />
+          </div>
+
+          <div className="mt-5 rounded-2xl border border-border/60 bg-background/35 p-3.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="label-xs">Normal daily allowance</span>
+              <span className="num text-[11px] text-muted-foreground">
+                {formatNex(mining.todayMinedNex)} / {formatNex(mining.todayLimitNex)} NEX
+              </span>
             </div>
             <ProgressBar
               value={mining.todayMinedNex}
               max={mining.todayLimitNex}
-              tone={mining.status === "limit" ? "warn" : "signal"}
-              className="mt-2"
+              tone={mining.state === "CAP_REACHED" ? "gold" : "signal"}
+              className="mt-2.5"
             />
-            {extensionLive ? (
-              <div className="mt-2.5 rounded-sm border border-gold/30 bg-gold/[0.04] px-2.5 py-2">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-[0.1em] text-gold">
-                    <Megaphone className="size-3" /> 5-hour extension
-                  </span>
-                  <span className="num text-[10px] text-foreground">
-                    {formatNex(mining.extensionMinedNex)} NEX · {countdown(extensionMs)} left
-                  </span>
-                </div>
-                <ProgressBar
-                  value={mining.extensionMinedNex}
-                  max={Math.max(mining.extensionMinedNex, speed.total * config.extensionHours)}
-                  tone="gold"
-                  className="mt-1.5"
-                />
-              </div>
-            ) : null}
-            <div className="mt-2.5 grid grid-cols-2 gap-y-2 sm:grid-cols-4 sm:divide-x sm:divide-border/70">
-              <Metric
-                label="Normal today"
-                value={formatNex(mining.todayMinedNex)}
-                sub="confirmed"
-                tone="gold"
-              />
-              <Metric
-                label="Extension"
-                value={formatNex(mining.extensionMinedNex)}
-                sub="separate bucket"
-                className="pl-0 sm:pl-3"
-              />
-              <Metric
-                label="Remaining"
-                value={formatNex(mining.remainingTodayNex)}
-                sub="normal cap"
-                className="pt-2 sm:pl-3 sm:pt-0"
-              />
-              <Metric
-                label="Daily cap"
-                value={formatNex(config.dailyLimitNex)}
-                sub="NEX / day"
-                className="pt-2 sm:pl-3 sm:pt-0"
-              />
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+              <span className="font-mono text-[8.5px] uppercase tracking-[0.08em] text-muted-foreground">
+                {capProgress.toFixed(0)}% of the normal cap
+              </span>
+              <span className="flex items-center gap-1.5 font-mono text-[8.5px] uppercase tracking-[0.08em] text-muted-foreground">
+                <Timer className="size-3" />
+                heartbeats never start mining
+              </span>
             </div>
           </div>
 
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border/70 pt-3">
-            <span className="flex items-center gap-1.5 font-mono text-[9.5px] uppercase tracking-[0.1em] text-muted-foreground">
-              <Timer className="size-3" /> Daily reset in{" "}
-              <span className="num text-foreground">{countdown(remainingMs)}</span>
-            </span>
-            <div className="flex flex-wrap items-center gap-2">
-              {mining.extensionStartable ? (
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+            {active ? (
+              <>
                 <Button
-                  size="sm"
-                  onClick={() => void startExtraNow()}
-                  disabled={startingExtra}
-                  className="gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em]"
-                >
-                  {startingExtra ? <Spinner /> : <Megaphone className="size-3.5" />}
-                  Start Extra Mining
-                </Button>
-              ) : null}
-              <Button
-                size="sm"
-                variant={mining.extensionStartable ? "outline" : "default"}
-                onClick={() => {
-                  if (!active && mining.status === "limit") {
-                    document
-                      .getElementById("ad-unlocks")
-                      ?.scrollIntoView({ behavior: "smooth", block: "start" });
-                    return;
-                  }
-                  void settleNow();
-                }}
-                disabled={settling || mining.status === "restricted"}
-                className="gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em]"
-              >
-                {settling ? <Spinner /> : <Pickaxe className="size-3.5" />}
-                {settling
-                  ? "Working"
-                  : active
-                    ? "Settle accrual"
-                    : mining.status === "limit"
-                      ? "View ad unlocks"
-                      : "Start mining"}
-              </Button>
-              {active ? (
-                <Button
-                  size="sm"
+                  size="lg"
                   variant="outline"
                   onClick={() => void stopNow()}
-                  className="gap-1.5 border-down/40 font-mono text-[10px] text-down uppercase tracking-[0.12em]"
+                  className="w-full gap-2 border-down/35 text-down hover:border-down/55 hover:bg-down/[0.055] sm:flex-1"
                 >
-                  <Pause className="size-3.5" /> Stop
+                  <Pause className="size-4" /> Stop mining
                 </Button>
-              ) : null}
+                <Button
+                  size="lg"
+                  onClick={() => void settleNow()}
+                  disabled={settling}
+                  className="w-full gap-2 sm:w-auto sm:min-w-44"
+                >
+                  {settling ? <Spinner /> : <Activity className="size-4" />}
+                  Settle now
+                </Button>
+              </>
+            ) : mining.extensionStartable ? (
+              <Button
+                size="lg"
+                onClick={() => void startExtraNow()}
+                disabled={startingExtra}
+                className="w-full gap-2 bg-gold text-[#241b08] hover:bg-gold/90"
+              >
+                {startingExtra ? <Spinner /> : <Play className="size-4" />}
+                Start extra mining · {config.extensionHours}h
+              </Button>
+            ) : mining.status === "limit" ? (
+              <Button size="lg" className="w-full gap-2" disabled>
+                <Lock className="size-4" /> Normal daily cap reached
+              </Button>
+            ) : (
+              <Button
+                size="lg"
+                onClick={() => void settleNow()}
+                disabled={settling || mining.status === "restricted"}
+                className="w-full gap-2"
+              >
+                {settling ? <Spinner /> : <Pickaxe className="size-4" />}
+                Start mining
+              </Button>
+            )}
+          </div>
+          <p className="mt-3 text-center text-[10px] leading-relaxed text-muted-foreground">
+            Opening, refreshing or returning to NEXPOOL never starts a session. The
+            backend only credits an explicitly authorized presence window.
+          </p>
+        </section>
+
+        <div className="space-y-4">
+          <Panel
+            eyebrow="Current state"
+            title={mining.state === "BACKGROUND_ACTIVE" ? "Background continuation" : "Why this state?"}
+            action={<Info className="size-4 text-muted-foreground" />}
+          >
+            <p className="text-[12px] leading-relaxed text-muted-foreground">
+              {mining.status === "restricted"
+                ? snapshot.account.restrictionReason ||
+                  "Mining is frozen while your account restriction is in place."
+                : mining.state === "ACTIVE"
+                  ? "The app is visible and the server has a fresh presence heartbeat. Accrual is credited against server time."
+                  : mining.state === "BACKGROUND_ACTIVE"
+                    ? "Your background entitlement is continuing an already-authorized session. It did not create a new one."
+                    : mining.state === "CAP_REACHED"
+                      ? `The normal allowance is complete for today. ${mining.extensionUnlocked ? "Your extra session is unlocked but has not started." : "The extra session is a separate, explicitly started bucket."}`
+                      : mining.state === "PAUSED"
+                        ? "A manual Stop is authoritative. Background mining and heartbeats cannot resume this session until you start again."
+                        : "No mining session is authorized. Press Start mining when you are ready; a new UTC day does not do it for you."}
+            </p>
+            <div className="mt-4 grid grid-cols-2 gap-3 border-t border-border/60 pt-4">
+              <Metric label="Server rate" value={`${formatNex(speed.total)}/h`} sub="NEX per hour" tone="gold" />
+              <Metric
+                label="Background"
+                value={mining.awayMiningActive ? "Active" : "Locked"}
+                sub={mining.awayMiningActive ? `${countdown(awayMs)} left` : `${config.awayMiningHours}h after 10 ads`}
+              />
+              <Metric
+                label="Extra session"
+                value={extensionLive ? "Live" : mining.extensionStartable ? "Ready" : "Locked"}
+                sub={extensionLive ? `${countdown(extensionMs)} left` : `${config.extensionHours}h after 20 ads`}
+              />
+              <Metric
+                label="Ads verified"
+                value={`${mining.ads.away.completed + mining.ads.extension.completed}`}
+                sub="today · provider confirmed"
+                tone="up"
+              />
             </div>
-          </div>
-        </div>
-      </Panel>
-
-      {mining.status !== "active" ? (
-        <div
-          className={cn(
-            "flex items-start gap-2.5 rounded-md border px-3.5 py-3",
-            mining.status === "restricted"
-              ? "border-down/40 bg-down/[0.06]"
-              : "border-warn/40 bg-warn/[0.05]",
-          )}
-        >
-          {mining.status === "restricted" ? (
-            <Lock className="mt-0.5 size-4 shrink-0 text-down" />
-          ) : (
-            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warn" />
-          )}
-          <div>
-            <p className="text-[12px] font-medium">
-              {mining.status === "limit"
-                ? "Daily limit reached"
-                : mining.status === "restricted"
-                  ? "Mining unavailable — account restricted"
-                  : mining.sessionActive
-                    ? "Mining paused by the operator"
-                    : "Mining session idle"}
-            </p>
-            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-              {mining.status === "limit"
-                ? extensionExpired
-                  ? `Your ${config.extensionHours}-hour extension has ended. It added ${formatNex(mining.extensionMinedNex)} NEX beyond the normal cap today. Normal mining resumes at 00:00 UTC in ${countdown(remainingMs)}.`
-                  : mining.extensionUnlocked
-                    ? `Your ${config.extensionHours}-hour extra session is unlocked but has not started. No extra NEX is accruing. Press Start Extra Mining above whenever you are ready.`
-                    : mining.ads.extension.unlockedToday
-                      ? `Your ${config.extensionHours}-hour extension was already granted today. Extension earnings are recorded separately; normal mining resumes at 00:00 UTC in ${countdown(remainingMs)}.`
-                      : `You have mined the full ${formatNex(config.dailyLimitNex)} NEX normal allowance for today. Watch ${mining.ads.extension.required} server-verified ads below to unlock ${config.extensionHours} more hours; normal mining also resumes at 00:00 UTC in ${countdown(remainingMs)}.`
-                : mining.status === "restricted"
-                  ? snapshot.account.restrictionReason ||
-                    "Contact support. Accrual is frozen while the restriction is in place."
-                  : mining.sessionActive
-                    ? "The mining engine is paused. Accrual restarts from the moment the operator re-enables it."
-                    : "Tap Start mining. Accrual runs only while this app is open and visible, and stops within 60 seconds of leaving."}
-            </p>
-          </div>
-        </div>
-      ) : null}
-
-      {mining.extensionUnlocked && !extensionLive ? (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-gold/40 bg-gold/[0.06] px-3.5 py-3">
-          <div className="flex items-start gap-2.5">
-            <Megaphone className="mt-0.5 size-4 shrink-0 text-gold" />
-            <div>
-              <p className="text-[12px] font-medium">
-                {config.extensionHours}-hour extra mining unlocked
+            <div className="mt-4 rounded-xl border border-primary/20 bg-primary/[0.035] px-3 py-2.5">
+              <p className="font-mono text-[8.5px] uppercase tracking-[0.08em] text-primary">
+                Verified ad reward
               </p>
               <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                The 20 verified ads are complete. The five-hour clock has not
-                started and no extra NEX is accruing until you press the button.
+                Each Monetag-valued postback credits{" "}
+                <span className="num text-foreground">{formatNex(config.adRewardNex)} NEX</span>{" "}
+                once to your available balance and the existing ledger. A duplicate
+                ymid never pays twice.
               </p>
             </div>
-          </div>
-          <Button
-            size="sm"
-            onClick={() => void startExtraNow()}
-            disabled={startingExtra}
-            className="gap-1.5 font-mono text-[10px] uppercase tracking-[0.1em]"
-          >
-            {startingExtra ? <Spinner /> : <Play className="size-3.5" />} Start Extra Mining
-          </Button>
-        </div>
-      ) : null}
+          </Panel>
 
-      {mining.awayMiningActive ? (
-        <div className="flex items-start gap-2.5 rounded-md border border-up/40 bg-up/[0.05] px-3.5 py-3">
-          <Plane className="mt-0.5 size-4 shrink-0 text-up" />
-          <div>
-            <p className="text-[12px] font-medium">
-              Background mining entitlement active
-            </p>
-            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-              Verified permission is live for {countdown(awayMs)}. It only
-              continues a session you already started; it never creates one. A
-              manual Stop overrides it until you press Start again.
-            </p>
-          </div>
+          <Panel eyebrow="Speed composition" title="How your rate is built">
+            <div className="space-y-3">
+              <SpeedLine icon={Gauge} label="Base mining speed" value={speed.base} total={speed.total} note="Operator-configured server rate" />
+              {speed.taskLines.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-border/70 px-3 py-2.5">
+                  <p className="text-[11px] text-muted-foreground">No task bonuses active yet.</p>
+                  <Link to="/app/earn/tasks" className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-primary">
+                    Explore tasks <ArrowUpRight className="size-3" />
+                  </Link>
+                </div>
+              ) : (
+                speed.taskLines.map((line) => (
+                  <SpeedLine
+                    key={line.completionId}
+                    icon={Layers}
+                    label={line.title}
+                    value={line.bonusNexPerHour}
+                    total={speed.total}
+                    note={line.active ? `${line.sponsor} · active` : `${line.sponsor} · campaign ended`}
+                    muted={!line.active}
+                  />
+                ))
+              )}
+              <SpeedLine
+                icon={Users}
+                label={`Referrals · ${referrals.qualified} qualified`}
+                value={speed.referralBonus}
+                total={speed.total}
+                note={`${formatNex(referrals.bonusNexPerHour)} NEX/h each · cap ${speed.referralBonusCap}`}
+              />
+              <SpeedLine
+                icon={Trophy}
+                label={`Level bonus · L${speed.claimedLevel}`}
+                value={speed.levelBonus}
+                total={speed.total}
+                note="Claimed levels only; XP alone adds no rate."
+              />
+              <div className="flex items-center justify-between border-t border-border/60 pt-3">
+                <span className="label-xs">Total active rate</span>
+                <span className="num text-[14px] font-semibold text-gold">{formatNex(speed.total)} NEX/h</span>
+              </div>
+            </div>
+          </Panel>
         </div>
-      ) : null}
+      </div>
 
-      {extensionExpired ? (
-        <div className="flex items-start gap-2.5 rounded-md border border-gold/40 bg-gold/[0.05] px-3.5 py-3">
-          <Megaphone className="mt-0.5 size-4 shrink-0 text-gold" />
-          <div>
-            <p className="text-[12px] font-medium">
-              {config.extensionHours}-hour extension completed
-            </p>
-            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-              The additional session ended at{" "}
-              {mining.extensionEndsAt
-                ? formatDateTime(mining.extensionEndsAt)
-                : "its server expiry"}{" "}
-              and earned {formatNex(mining.extensionMinedNex)} NEX outside the
-              normal daily cap. The next extension can be unlocked after a new
-              normal cap is reached.
-            </p>
-          </div>
-        </div>
-      ) : null}
-
-      <div id="ad-unlocks" className="scroll-mt-4 space-y-3">
+      <div id="ad-unlocks" className="scroll-mt-6 space-y-4">
         <SectionHeading
-          index="03"
-          title="Verified ad unlocks"
-          body="Two independent entitlements. Both require a Monetag server postback that authenticates the valued view; a click or client callback alone never counts."
+          index="Verified ads"
+          title="Two independent unlocks"
+          body="Both use a server-issued ymid and wait for Monetag's authenticated postback. A click, an open, or a client callback alone is never enough."
         />
         {adNotice ? (
-          <div className="flex items-start gap-2.5 rounded-md border border-primary/40 bg-primary/[0.05] px-3.5 py-2.5">
+          <div className="flex items-start gap-2.5 rounded-2xl border border-primary/30 bg-primary/[0.045] px-4 py-3">
             <BadgeCheck className="mt-0.5 size-4 shrink-0 text-primary" />
-            <p className="text-[11px] leading-relaxed text-muted-foreground">
-              {adNotice}
-            </p>
+            <p className="text-[11.5px] leading-relaxed text-muted-foreground">{adNotice}</p>
           </div>
         ) : null}
-        <div className="grid gap-3.5 lg:grid-cols-2">
-          <AdUnlockCard
+        <div className="grid gap-4 lg:grid-cols-2">
+          <UnlockCard
             icon={Plane}
-            eyebrow="Leave the app"
-            title="Background mining"
-            description={`Normal mining pauses when you close the Mini App. Complete ${mining.ads.away.required} separately verified ads to keep it running for ${mining.awayMiningHours} hours.`}
+            accent="lime"
+            eyebrow="Background continuation"
+            title="Keep a started session alive"
+            description={`Complete ${mining.ads.away.required} separately verified ads to let an already-authorized session continue for ${mining.awayMiningHours} hours while the Mini App is closed.`}
             completed={mining.ads.away.completed}
             required={mining.ads.away.required}
             active={mining.ads.away.active}
-            activeLabel={`Active · ${countdown(awayMs)} left`}
+            activeLabel={mining.ads.away.active ? `Active · ${countdown(awayMs)} left` : "Entitlement expires automatically"}
             note={
               mining.ads.away.active
-                ? "Permission is stored on the server and expires automatically."
+                ? "The permission never starts mining by itself. A manual Stop still overrides it."
                 : mining.ads.away.expired
-                  ? "Your last background-mining permission has expired. Complete a new 10-ad unlock to start another window."
+                  ? "The previous permission expired. Complete a new 10-ad unlock for another window."
                   : providerReady
-                    ? "One provider-confirmed view counts once. Opening or clicking an ad never counts."
-                    : "Provider verification is not configured. Ads cannot grant progress until the Monetag postback secret is set."
+                    ? "Only provider-confirmed views count. Opening or clicking an ad does not."
+                    : "Provider verification is not configured. This card fails closed."
             }
             busy={adBusy === "away"}
             disabled={mining.ads.away.active || !providerReady}
@@ -508,42 +475,35 @@ export default function Mining() {
                   : "Verification unavailable"
             }
             onWatch={() => void watchAds("away")}
-            onOpenDetails={() => openMiningPopup("away")}
+            onDetails={() => openMiningPopup("away")}
           />
-          <AdUnlockCard
+          <UnlockCard
             icon={Megaphone}
-            eyebrow="Beyond the daily cap"
-            title={`${config.extensionHours}-hour extension`}
-            description={`After reaching ${formatNex(config.dailyLimitNex)} NEX normal mining, complete ${mining.ads.extension.required} verified ads to unlock ${config.extensionHours} more hours. Extension NEX is recorded separately.`}
-            completed={
-              mining.extensionUnlocked
-                ? mining.ads.extension.required
-                : mining.ads.extension.completed
-            }
+            accent="gold"
+            eyebrow="Beyond the normal cap"
+            title={`${config.extensionHours}-hour extra session`}
+            description={`After reaching ${formatNex(config.dailyLimitNex)} NEX normal mining, complete ${mining.ads.extension.required} verified ads to unlock ${config.extensionHours} more hours. The clock does not start by itself.`}
+            completed={mining.extensionUnlocked ? mining.ads.extension.required : mining.ads.extension.completed}
             required={mining.ads.extension.required}
             active={mining.ads.extension.active}
-            activeLabel={`Extension live · ${countdown(extensionMs)} left`}
+            activeLabel={mining.ads.extension.active ? `Live · ${countdown(extensionMs)} left` : "Separate from the normal cap"}
             note={
               mining.ads.extension.active
                 ? `${formatNex(mining.extensionMinedNex)} NEX extension earnings confirmed today.`
                 : extensionExpired
-                  ? `Session completed. ${formatNex(mining.extensionMinedNex)} NEX was earned in the separate extension bucket today.`
+                  ? `Session completed. ${formatNex(mining.extensionMinedNex)} NEX was earned outside the normal cap.`
                   : mining.extensionUnlocked
-                    ? "The 20 verified ads are complete. The five-hour clock starts only when you press Start Extra Mining above."
+                    ? "The ads are complete. Press Start Extra Mining above to begin the five-hour clock."
                     : mining.ads.extension.unlockedToday
-                      ? "Unlocked once today. The next extension becomes available after the next normal cap."
-                    : mining.remainingTodayNex > 0
-                      ? `Reach the normal cap first — ${formatNex(mining.remainingTodayNex)} NEX remaining.`
-                      : providerReady
-                        ? "Unlock once per UTC day. Completing the ads does not start the five-hour clock — press Start Extra Mining when you are ready."
-                        : "Provider verification is not configured. Ads cannot grant progress until the Monetag postback secret is set."
+                      ? "Already unlocked today. The next extension requires a new normal cap."
+                      : mining.remainingTodayNex > 0
+                        ? `Reach the normal cap first — ${formatNex(mining.remainingTodayNex)} NEX remaining.`
+                        : providerReady
+                          ? "Completing the ads grants the entitlement. Starting it is always a separate action."
+                          : "Provider verification is not configured. This card fails closed."
             }
             busy={adBusy === "extension"}
-            disabled={
-              mining.ads.extension.active ||
-              !mining.ads.extension.eligible ||
-              !providerReady
-            }
+            disabled={mining.ads.extension.active || !mining.ads.extension.eligible || !providerReady}
             ctaLabel={
               mining.ads.extension.active
                 ? "Permission active"
@@ -560,242 +520,96 @@ export default function Mining() {
                         : "Verification unavailable"
             }
             onWatch={() => void watchAds("extension")}
-            onOpenDetails={() => openMiningPopup("extension")}
+            onDetails={() => openMiningPopup("extension")}
           />
         </div>
       </div>
 
-      <div className="grid gap-3.5 lg:grid-cols-2">
-        <Panel eyebrow="Speed composition" title="How your rate is built">
-          <div className="space-y-3">
-            <SpeedLine
-              icon={Gauge}
-              label="Base mining speed"
-              value={speed.base}
-              total={speed.total}
-              note="Configured by the operator"
-            />
-            {speed.taskLines.length === 0 ? (
-              <div className="rounded-sm border border-dashed border-border/70 px-3 py-2">
-                <p className="text-[11px] text-muted-foreground">
-                  No task bonuses active yet.
-                </p>
-                <Link
-                  to="/app/earn/tasks"
-                  className="mt-1 inline-flex items-center gap-1 font-mono text-[9px] uppercase tracking-[0.1em] text-primary"
-                >
-                  Complete a task <ArrowUpRight className="size-3" />
-                </Link>
-              </div>
-            ) : (
-              speed.taskLines.map((line) => (
-                <SpeedLine
-                  key={line.completionId}
-                  icon={Layers}
-                  label={line.title}
-                  value={line.bonusNexPerHour}
-                  total={speed.total}
-                  note={
-                    line.active
-                      ? `${line.sponsor} · active since ${formatDateTime(line.verifiedAt)}`
-                      : `${line.sponsor} · campaign ended, bonus inactive`
-                  }
-                  muted={!line.active}
-                />
-              ))
-            )}
-            {speed.pendingLines.length > 0 ? (
-              <div className="space-y-1.5 border-t border-dashed border-border/70 pt-2.5">
-                <p className="label-xs">Pending upgrades</p>
-                {speed.pendingLines.map((line) => (
-                  <div
-                    key={line.completionId}
-                    className="flex items-center justify-between gap-2 rounded-sm border border-dashed border-warn/30 bg-warn/[0.03] px-2 py-1.5"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate text-[10.5px] text-muted-foreground">
-                        {line.title}
-                      </p>
-                      <p className="font-mono text-[8.5px] uppercase tracking-[0.06em] text-warn">
-                        {line.status === "unavailable"
-                          ? "verification unavailable"
-                          : "awaiting verification"}{" "}
-                        · submitted {formatDateTime(line.submittedAt)}
-                      </p>
-                    </div>
-                    <span className="num shrink-0 text-[10px] text-warn">
-                      +{formatNex(line.bonusNexPerHour)} pending
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-            <SpeedLine
-              icon={Users}
-              label={`Referral bonuses · ${referrals.qualified} qualified`}
-              value={speed.referralBonus}
-              total={speed.total}
-              note={`${formatNex(referrals.bonusNexPerHour)} NEX/h per qualified referral, capped at ${speed.referralBonusCap}`}
-            />
-            <SpeedLine
-              icon={Trophy}
-              label={`Level bonuses · L${speed.claimedLevel}`}
-              value={speed.levelBonus}
-              total={speed.total}
-              note="Claimed level rewards raise the base rate permanently. XP alone adds nothing."
-            />
-            <div className="flex items-center justify-between border-t border-border/70 pt-3">
-              <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-                Total active rate
-              </span>
-              <span className="num text-sm font-semibold text-gold">
-                {formatNex(speed.total)} NEX/h
-              </span>
-            </div>
-            <p className="text-[9.5px] leading-relaxed text-muted-foreground">
-              Total speed is hard-capped at 2× the base rate. Legacy task and
-              referral bonuses cannot accelerate nano-NEX mining past that rail.
-            </p>
-          </div>
-        </Panel>
-
-        <Panel eyebrow="Mining rules" title="Caps & settlement">
+      <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+        <Panel eyebrow="Mining rules" title="What the engine will not do">
           <div className="space-y-2.5">
             {[
-              {
-                label: "Base speed",
-                value: `${formatNex(speed.base)} NEX/h`,
-                icon: Gauge,
-              },
-              {
-                label: "Task speed bonuses",
-                value: `${formatNex(speed.taskBonus)} NEX/h`,
-                icon: Layers,
-              },
-              {
-                label: "Referral speed bonuses",
-                value: `${formatNex(speed.referralBonus)} NEX/h`,
-                icon: Users,
-              },
-              {
-                label: "Level speed bonuses",
-                value: `${formatNex(speed.levelBonus)} NEX/h`,
-                icon: Trophy,
-              },
-              {
-                label: "Daily cap (normal)",
-                value: `${formatNex(config.dailyLimitNex)} NEX`,
-                icon: Zap,
-              },
-              {
-                label: "Extension bucket",
-                value: `${formatNex(mining.extensionMinedNex)} NEX today`,
-                icon: Megaphone,
-              },
-              {
-                label: "Background permission",
-                value: mining.awayMiningActive
-                  ? `${countdown(awayMs)} left`
-                  : `${mining.awayMiningHours} h after 10 ads`,
-                icon: Plane,
-              },
-              {
-                label: "Rate cap",
-                value: `2× base · ${formatNex(speed.rateCapNexPerHour)} NEX/h`,
-                icon: Gauge,
-              },
-              {
-                label: "Reset",
-                value: "00:00 UTC",
-                icon: Clock,
-              },
-              {
-                label: "Settlement",
-                value: "Server-side only",
-                icon: Activity,
-              },
-            ].map((row) => (
-              <div
-                key={row.label}
-                className="flex items-center justify-between border-b border-border/60 py-1.5 last:border-0"
-              >
-                <span className="flex items-center gap-2 text-[11.5px] text-muted-foreground">
-                  <row.icon className="size-3.5" /> {row.label}
-                </span>
-                <span className="num text-[11px]">{row.value}</span>
+              ["Start on open", "No. App launch, refresh, login, heartbeat and ad completion never create a session."],
+              ["Start on a new day", "No. 00:00 UTC only resets the normal allowance."],
+              ["Resume after Stop", "No. A manual Stop blocks background and heartbeat resume until you press Start."],
+              ["Oversell the cap", "No. Normal NEX stops at the configured daily cap; extension NEX is a separate bucket."],
+              ["Trust the client", "No. Token credit and entitlement changes require the backend postback."],
+            ].map(([label, value]) => (
+              <div key={label} className="flex items-start justify-between gap-4 border-b border-border/55 py-2.5 last:border-0 last:pb-0">
+                <span className="text-[11.5px] font-medium text-foreground">{label}</span>
+                <span className="max-w-[62%] text-right text-[10.5px] leading-relaxed text-muted-foreground">{value}</span>
               </div>
             ))}
-          </div>              <div className="mt-3 rounded-sm border border-border/70 bg-panel/50 p-2.5">
-            <p className="text-[10px] leading-relaxed text-muted-foreground">
-              Rewards accrue only during a live, heartbeated session, a valid
-              background continuation, or an explicitly started extra session.
-              Normal earnings stop at {formatNex(config.dailyLimitNex)} NEX per
-              UTC day. The five-hour extension is a separate bucket and never
-              raises the normal cap. A daily reset never starts a session.
-              Everything is settled from server time.
-            </p>
           </div>
         </Panel>
-      </div>
 
-      <Panel
-        eyebrow="Mining ledger"
-        title="Settlement history"
-        action={
-          <span className="flex items-center gap-1 font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
-            <History className="size-3" /> {miningHistory.length} entries
-          </span>
-        }
-        bodyClassName="p-0"
-      >
-        {miningHistory.length === 0 ? (
-          <div className="p-4">
-            <EmptyState
-              icon={<Pickaxe className="size-4" />}
-              title="No settlements yet"
-              body="Your first confirmed accrual appears here after the backend credits a live mining session."
-            />
-          </div>
-        ) : (
-          <ul>
-            {miningHistory.map((entry) => (
-              <li
-                key={entry.id}
-                className="flex items-center gap-3 border-b border-border/60 px-4 py-2.5 last:border-0"
-              >
-                <span className="flex size-7 items-center justify-center rounded-sm border border-border bg-secondary/50">
-                  <Pickaxe className="size-3 text-primary" />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-[11.5px] font-medium">
-                    Mining settlement
-                    <span className="ml-2 font-mono text-[9px] text-muted-foreground">
-                      {entry.day}
-                    </span>
-                  </p>
-                  <p className="num mt-0.5 text-[9px] text-muted-foreground">
-                    {formatDateTime(entry.fromTs)} → {formatDateTime(entry.toTs)} ·{" "}
-                    {formatNex(entry.rateNexPerHour)} NEX/h
-                  </p>
-                  <p className="num mt-0.5 text-[8.5px] text-muted-foreground">
-                    normal {formatNex(entry.normalNex)} · extension{" "}
-                    {formatNex(entry.extensionNex)}
-                  </p>
-                </div>
-                <span className="num shrink-0 text-[12px] text-gold">
-                  +{formatNex(entry.amountNex)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Panel>
+        <Panel
+          eyebrow="Mining ledger"
+          title={`${miningHistory.length} confirmed settlements`}
+          action={
+            <Link to="/app/history" className="flex items-center gap-1 text-[10px] font-semibold text-primary">
+              Full ledger <ArrowUpRight className="size-3" />
+            </Link>
+          }
+          bodyClassName="p-0"
+        >
+          {miningHistory.length === 0 ? (
+            <div className="p-4">
+              <EmptyState
+                icon={<Pickaxe className="size-4" />}
+                title="No settlements yet"
+                body="A confirmed settlement appears here after the backend credits a server-authorized window."
+              />
+            </div>
+          ) : (
+            <ul className="divide-y divide-border/55">
+              {miningHistory.slice(0, 6).map((entry) => (
+                <li key={entry.id} className="flex items-center gap-3 px-5 py-3">
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-full border border-primary/20 bg-primary/8">
+                    <History className="size-3.5 text-primary" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[11.5px] font-semibold">
+                      Mining settlement <span className="ml-1 font-mono text-[8.5px] font-normal text-muted-foreground">{entry.day}</span>
+                    </p>
+                    <p className="num mt-0.5 text-[8.5px] text-muted-foreground">
+                      {formatDateTime(entry.fromTs)} → {formatDateTime(entry.toTs)} · {formatNex(entry.rateNexPerHour)} NEX/h
+                    </p>
+                  </div>
+                  <span className="num shrink-0 text-[12px] font-semibold text-gold">+{formatNex(entry.amountNex)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Panel>
+      </div>
     </div>
   );
 }
 
-function AdUnlockCard({
+function MiniStat({
+  label,
+  value,
+  sub,
+  mono,
+}: {
+  label: string;
+  value: string;
+  sub: string;
+  mono?: boolean;
+}) {
+  return (
+    <div className="rounded-xl border border-border/55 bg-white/[0.018] px-3 py-2.5">
+      <p className="label-xs">{label}</p>
+      <p className={cn("mt-1 text-[13px] font-semibold text-foreground", mono ? "num" : "num")}>{value}</p>
+      <p className="mt-0.5 font-mono text-[8px] uppercase tracking-[0.06em] text-muted-foreground">{sub}</p>
+    </div>
+  );
+}
+
+function UnlockCard({
   icon: Icon,
+  accent,
   eyebrow,
   title,
   description,
@@ -808,9 +622,10 @@ function AdUnlockCard({
   disabled,
   ctaLabel,
   onWatch,
-  onOpenDetails,
+  onDetails,
 }: {
   icon: typeof Gauge;
+  accent: "lime" | "gold";
   eyebrow: string;
   title: string;
   description: string;
@@ -823,54 +638,63 @@ function AdUnlockCard({
   disabled: boolean;
   ctaLabel?: string;
   onWatch: () => void;
-  onOpenDetails: () => void;
+  onDetails: () => void;
 }) {
+  const gold = accent === "gold";
   return (
-    <Panel eyebrow={eyebrow} title={title}>
-      <div className="flex items-start gap-2.5">
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-sm border border-border bg-secondary/50 text-primary">
-          <Icon className="size-4" />
+    <section className={cn("premium-card relative overflow-hidden rounded-2xl p-5", gold && "border-gold/20")}>
+      <div className={cn("pointer-events-none absolute -right-16 -top-20 size-44 rounded-full blur-3xl", gold ? "bg-gold/[0.055]" : "bg-primary/[0.045]")} />
+      <div className="relative flex items-start justify-between gap-3">
+        <span
+          className={cn(
+            "flex size-11 items-center justify-center rounded-2xl border",
+            gold ? "border-gold/25 bg-gold/10 text-gold" : "border-primary/25 bg-primary/10 text-primary",
+          )}
+        >
+          <Icon className="size-5" />
         </span>
-        <p className="text-[11px] leading-relaxed text-muted-foreground">
-          {description}
-        </p>
+        <span className="rounded-full border border-border/60 bg-white/[0.025] px-2.5 py-1 font-mono text-[8px] uppercase tracking-[0.08em] text-muted-foreground">
+          {active ? activeLabel : "independent"}
+        </span>
       </div>
-      <div className="mt-3 rounded-sm border border-border/70 bg-background/40 p-2.5">
+      <p className={cn("label-xs relative mt-4", gold ? "text-gold/80" : "text-primary/80")}>{eyebrow}</p>
+      <h3 className="relative mt-1.5 text-[17px] font-semibold tracking-tight">{title}</h3>
+      <p className="relative mt-1.5 text-[11.5px] leading-relaxed text-muted-foreground">{description}</p>
+
+      <div className="relative mt-4 rounded-xl border border-border/60 bg-background/35 p-3">
         <div className="flex items-center justify-between gap-2">
-          <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
-            {active ? activeLabel : "Verified ad progress"}
-          </span>
-          <span className="num text-[10px] text-foreground">
-            {completed} / {required}
+          <span className="label-xs">{active ? "Entitlement" : "Verified progress"}</span>
+          <span className="num text-[12px] font-semibold">
+            {active ? activeLabel : `${completed} / ${required}`}
           </span>
         </div>
         <ProgressBar
           value={active ? required : completed}
           max={required}
-          tone={active ? "gold" : "signal"}
-          className="mt-1.5"
+          tone={gold ? "gold" : "signal"}
+          className="mt-2"
         />
       </div>
-      <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground">{note}</p>
+
+      <p className="relative mt-3 min-h-9 text-[10.5px] leading-relaxed text-muted-foreground">{note}</p>
       <Button
         size="sm"
         onClick={onWatch}
         disabled={disabled || busy}
-        className="mt-3 w-full gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em]"
+        variant={gold ? "outline" : "default"}
+        className={cn("relative mt-3 w-full gap-1.5", gold && "border-gold/35 text-gold hover:bg-gold/[0.06]")}
       >
         {busy ? <Spinner /> : <Icon className="size-3.5" />}
-        {busy
-          ? "Waiting for provider confirmation"
-          : (ctaLabel ?? `Watch Monetag ad · ${Math.min(completed + 1, required)}/${required}`)}
+        {busy ? "Waiting for provider" : (ctaLabel ?? `Watch verified ad · ${Math.min(completed + 1, required)}/${required}`)}
       </Button>
       <button
         type="button"
-        onClick={onOpenDetails}
-        className="mt-2 flex w-full items-center justify-center gap-1 font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground transition-colors hover:text-foreground"
+        onClick={onDetails}
+        className="relative mt-2.5 flex w-full items-center justify-center gap-1 text-[9.5px] font-medium text-muted-foreground transition-colors hover:text-foreground"
       >
         <Info className="size-3" /> How this unlock works
       </button>
-    </Panel>
+    </section>
   );
 }
 
@@ -887,12 +711,8 @@ function StatusLabel({
     | "COMPLETED";
 }) {
   if (state === "ACTIVE") return <StatusPill tone="up">Active</StatusPill>;
-  if (state === "BACKGROUND_ACTIVE") {
-    return <StatusPill tone="up">Background active</StatusPill>;
-  }
-  if (state === "CAP_REACHED") {
-    return <StatusPill tone="warn">Daily limit</StatusPill>;
-  }
+  if (state === "BACKGROUND_ACTIVE") return <StatusPill tone="up">Background active</StatusPill>;
+  if (state === "CAP_REACHED") return <StatusPill tone="gold">Daily limit</StatusPill>;
   if (state === "EXPIRED" || state === "COMPLETED") {
     return <StatusPill tone="muted">{state.toLowerCase()}</StatusPill>;
   }
@@ -916,27 +736,17 @@ function SpeedLine({
 }) {
   return (
     <div>
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex min-w-0 items-start gap-2">
-          <Icon
-            className={cn(
-              "mt-0.5 size-3.5 shrink-0",
-              muted ? "text-muted-foreground" : "text-primary",
-            )}
-          />
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-2.5">
+          <span className={cn("mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full border", muted ? "border-border bg-secondary/40 text-muted-foreground" : "border-primary/20 bg-primary/8 text-primary")}>
+            <Icon className="size-3.5" />
+          </span>
           <div className="min-w-0">
-            <p className="truncate text-[11.5px] font-medium">{label}</p>
-            <p className="mt-0.5 text-[9.5px] leading-relaxed text-muted-foreground">
-              {note}
-            </p>
+            <p className="truncate text-[11.5px] font-semibold">{label}</p>
+            <p className="mt-0.5 text-[9.5px] leading-relaxed text-muted-foreground">{note}</p>
           </div>
         </div>
-        <span
-          className={cn(
-            "num shrink-0 text-[11px]",
-            muted ? "text-muted-foreground" : "text-foreground",
-          )}
-        >
+        <span className={cn("num shrink-0 text-[11px]", muted ? "text-muted-foreground" : "text-foreground")}>
           +{formatNex(value)}
         </span>
       </div>

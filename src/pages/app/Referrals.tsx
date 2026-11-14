@@ -113,7 +113,7 @@ export default function Referrals() {
   return (
     <div className="space-y-3.5">
       <SectionHeading
-        index="04"
+        index="Network"
         title="Referral desk"
         body={`Everyone who starts with your link is recorded immediately. Only referrals with ${data.taskTarget} verified tasks count toward withdrawal eligibility.`}
         action={
@@ -175,7 +175,7 @@ export default function Referrals() {
       </div>
 
       <Panel eyebrow="Your referral link" title="Invite a miner">
-        <div className="flex items-center gap-2 rounded-sm border border-border/70 bg-background/50 px-2.5 py-2">
+        <div className="flex items-center gap-2 rounded-xl border border-border/70 bg-background/50 px-2.5 py-2">
           <Link2 className="size-3.5 shrink-0 text-muted-foreground" />
           <p className="num min-w-0 flex-1 truncate text-[10.5px] text-foreground">
             {link}
@@ -216,7 +216,7 @@ export default function Referrals() {
               <div
                 key={index}
                 className={cn(
-                  "flex h-7 flex-1 items-center justify-center rounded-sm border text-[8px]",
+                  "flex h-7 flex-1 items-center justify-center rounded-xl border text-[8px]",
                   filled
                     ? "border-up/50 bg-up/15 text-up"
                     : "border-border/70 bg-secondary/30 text-muted-foreground",
@@ -440,7 +440,7 @@ export default function Referrals() {
               </li>
             ))}
           </ul>
-          <div className="mt-3 flex items-start gap-2 rounded-sm border border-border/70 bg-panel/60 p-2.5">
+          <div className="mt-3 flex items-start gap-2 rounded-xl border border-border/70 bg-panel/60 p-2.5">
             <ShieldCheck className="mt-0.5 size-3.5 shrink-0 text-primary" />
             <p className="text-[10px] leading-relaxed text-muted-foreground">
               Attribution uses the verified Telegram ID, never a username. The

@@ -118,6 +118,7 @@ export function MiningPopupsProvider({ children }: { children: ReactNode }) {
   const providerReady = Boolean(mining?.ads.providerReady);
   const remaining = mining?.remainingTodayNex ?? 0;
   const extensionHours = snapshot?.config.extensionHours ?? 5;
+  const adRewardNex = snapshot?.config.adRewardNex ?? 0;
   const shownCompleted =
     active || (isExtension && extensionStartable) ? required : completed;
   const ctaDisabled = isExtension
@@ -140,7 +141,7 @@ export function MiningPopupsProvider({ children }: { children: ReactNode }) {
       : `You've reached your normal daily mining limit. Watch ${required} verified advertisements to unlock an additional ${extensionHours} hours of mining and earn extra NEX beyond your normal daily cap.`
     : `Your normal mining pauses when you leave NEXPOOL. Watch ${required} verified advertisements to unlock background mining.`;
 
-  let statusNote = "Only completed Monetag reward views count — an open or click never counts.";
+  let statusNote = `Only completed Monetag reward views count — an open or click never counts. Each valued postback credits ${formatNex(adRewardNex)} NEX once.`;
   if (active) {
     const endsAt = isExtension
       ? mining?.extensionEndsAt

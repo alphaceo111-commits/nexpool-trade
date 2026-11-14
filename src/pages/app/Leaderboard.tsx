@@ -57,7 +57,7 @@ export default function Leaderboard() {
   return (
     <div className="space-y-3.5">
       <SectionHeading
-        index="06"
+        index="Rankings"
         title="Leaderboard"
         body="Rankings are computed on the backend from confirmed activity. Pending, failed and reversed rewards never count."
         action={<StatusPill tone="signal">Live</StatusPill>}
@@ -73,7 +73,7 @@ export default function Leaderboard() {
               setOffset(0);
             }}
             className={cn(
-              "rounded-sm border px-2.5 py-1.5 font-mono text-[9.5px] uppercase tracking-[0.08em] transition-colors",
+              "rounded-xl border px-2.5 py-1.5 font-mono text-[9.5px] uppercase tracking-[0.08em] transition-colors",
               category === item.key
                 ? "border-primary/50 bg-primary/10 text-primary"
                 : "border-border bg-card text-muted-foreground hover:text-foreground",
@@ -94,7 +94,7 @@ export default function Leaderboard() {
               setOffset(0);
             }}
             className={cn(
-              "rounded-sm border px-2 py-1 font-mono text-[9px] uppercase tracking-[0.1em] transition-colors",
+              "rounded-xl border px-2 py-1 font-mono text-[9px] uppercase tracking-[0.1em] transition-colors",
               period === item.key
                 ? "border-gold/50 bg-gold/10 text-gold"
                 : "border-border bg-card text-muted-foreground hover:text-foreground",
@@ -127,7 +127,7 @@ export default function Leaderboard() {
             {Array.from({ length: 6 }).map((_, index) => (
               <div
                 key={index}
-                className="h-12 animate-pulse rounded-sm border border-border/50 bg-secondary/30"
+                className="h-12 animate-pulse rounded-xl border border-border/50 bg-secondary/30"
               />
             ))}
           </div>
@@ -237,7 +237,7 @@ export default function Leaderboard() {
 
       <Panel eyebrow="Your position" title={data?.me?.nexId ?? "Your ranking"}>
         <div className="flex items-center gap-3">
-          <div className="flex size-10 items-center justify-center rounded-sm border border-primary/40 bg-primary/10 text-primary">
+          <div className="flex size-10 items-center justify-center rounded-xl border border-primary/40 bg-primary/10 text-primary">
             <Users className="size-4" />
           </div>
           <div className="min-w-0 flex-1">
@@ -254,7 +254,7 @@ export default function Leaderboard() {
               : "—"}
           </p>
         </div>
-        <div className="mt-3 flex items-start gap-2 rounded-sm border border-border/70 bg-panel/60 p-2.5">
+        <div className="mt-3 flex items-start gap-2 rounded-xl border border-border/70 bg-panel/60 p-2.5">
           <ShieldCheck className="mt-0.5 size-3.5 shrink-0 text-primary" />
           <p className="text-[10px] leading-relaxed text-muted-foreground">
             {data?.privacy ??

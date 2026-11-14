@@ -177,9 +177,11 @@ export const overview = query({
         adProviderConfigured: Boolean(
           process.env.AD_PROVIDER_VERIFY_URL && process.env.AD_PROVIDER_API_KEY,
         ),
-        // The Monetag zone SDK is bundled in the app shell. The optional
-        // postback secret is not required for the SDK-confirmed reward flow.
-        rewardedAdProviderConfigured: true,
+        // The SDK alone is not enough: rewards fail closed until the provider
+        // postback secret is configured on the Convex deployment.
+        rewardedAdProviderConfigured: Boolean(
+          process.env.MONETAG_POSTBACK_SECRET,
+        ),
       },
       counts: {
         users: profiles.length,
@@ -616,6 +618,7 @@ export const updateConfig = mutation({
     miningEnabled: v.boolean(),
     awayMiningHours: v.optional(v.number()),
     extensionHours: v.optional(v.number()),
+    adRewardNex: v.optional(v.number()),
     withdrawalsEnabled: v.boolean(),
   },
   handler: async (ctx, args) => {
@@ -660,11 +663,15 @@ export const updateConfig = mutation({
     }
     const awayMiningHours = args.awayMiningHours ?? config.awayMiningHours;
     const extensionHours = args.extensionHours ?? config.extensionHours;
+    const adRewardNex = args.adRewardNex ?? config.adRewardNex;
     if (!(awayMiningHours >= 1) || awayMiningHours > 168) {
       throw new Error("Away-mining permission must be between 1 and 168 hours.");
     }
     if (!(extensionHours >= 1) || extensionHours > 24) {
       throw new Error("The daily-cap extension must be between 1 and 24 hours.");
+    }
+    if (adRewardNex < 0 || adRewardNex > 0.01) {
+      throw new Error("A verified-ad reward must be between 0 and 0.01 NEX.");
     }
 
     const now = Date.now();
@@ -674,6 +681,7 @@ export const updateConfig = mutation({
       ...args,
       awayMiningHours,
       extensionHours,
+      adRewardNex: roundNex(adRewardNex),
       miningEnabledAt,
       updatedAt: now,
       updatedBy: actor.label,

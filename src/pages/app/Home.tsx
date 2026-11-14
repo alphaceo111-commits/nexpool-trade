@@ -1,7 +1,6 @@
 import { api } from "@/convex/_generated/api";
-import { useMutation, useQuery } from "convex/react";
+import { useQuery } from "convex/react";
 import { Link } from "react-router";
-import { toast } from "sonner";
 import {
   Area,
   Bar,
@@ -12,7 +11,6 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { showRewardedAd } from "@/lib/monetag";
 import {
   ArrowUpRight,
   BadgeCheck,
@@ -22,98 +20,23 @@ import {
   Gauge as GaugeIcon,
   ListChecks,
   Pickaxe,
-  Play,
   ShieldCheck,
   TrendingUp,
   Users,
   Wallet,
 } from "lucide-react";
-import { useEffect, useState } from "react";
 import {
+  CopyButton,
   formatDateTime,
   formatNex,
   formatUsd,
   initials,
-  LiveMined,
   Metric,
   Panel,
-  ProgressBar,
   StatusPill,
 } from "@/components/app/parts";
-import { CopyButton } from "@/components/app/parts";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-
-function MiningDial({
-  todayNex,
-  capNex,
-  ratePerHour,
-  serverNow,
-  enabled,
-  status,
-}: {
-  todayNex: number;
-  capNex: number;
-  ratePerHour: number;
-  serverNow: number;
-  enabled: boolean;
-  status: "active" | "paused" | "limit" | "restricted";
-}) {
-  const pct = capNex > 0 ? Math.min(100, (todayNex / capNex) * 100) : 0;
-  const radius = 52;
-  const circumference = 2 * Math.PI * radius;
-  const dash = (pct / 100) * circumference;
-
-  return (
-    <div className="relative mx-auto flex size-[146px] items-center justify-center">
-      {status === "active" ? (
-        <>
-          <span className="mining-ring" />
-          <span
-            className="mining-ring"
-            style={{ animationDelay: "1.1s" }}
-          />
-        </>
-      ) : null}
-      <svg viewBox="0 0 130 130" className="size-[146px] -rotate-90">
-        <circle
-          cx="65"
-          cy="65"
-          r={radius}
-          fill="none"
-          stroke="var(--secondary)"
-          strokeWidth="5"
-        />
-        <circle
-          cx="65"
-          cy="65"
-          r={radius}
-          fill="none"
-          stroke={status === "limit" ? "var(--gold)" : "var(--primary)"}
-          strokeWidth="5"
-          strokeLinecap="round"
-          strokeDasharray={`${dash} ${circumference}`}
-          className="transition-all duration-700"
-        />
-      </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <p className="label-xs">Mined today</p>
-        <p className="num mt-1 text-xl font-semibold text-gold">
-          <LiveMined
-            key={serverNow}
-            settledNex={todayNex}
-            ratePerHour={ratePerHour}
-            capNex={capNex}
-            enabled={enabled}
-          />
-        </p>
-        <p className="num mt-0.5 text-[9px] text-muted-foreground">
-          / {formatNex(capNex)} NEX
-        </p>
-      </div>
-    </div>
-  );
-}
 
 type NexChartPoint = {
   day: string;
@@ -121,142 +44,122 @@ type NexChartPoint = {
   cumulativeNex: number;
 };
 
-function NexChart({
-  data,
-  ratePerHour,
+function HomeMiningRing({
+  todayNex,
+  capNex,
+  state,
 }: {
-  data: NexChartPoint[];
-  ratePerHour: number;
+  todayNex: number;
+  capNex: number;
+  state: string;
 }) {
-  const rows = data.length
-    ? data
-    : [{ day: "today", amountNex: 0, cumulativeNex: 0 }];
+  const pct = capNex > 0 ? Math.min(100, (todayNex / capNex) * 100) : 0;
+  const radius = 48;
+  const circumference = 2 * Math.PI * radius;
+  const dash = (pct / 100) * circumference;
+  const tone =
+    state === "CAP_REACHED"
+      ? "var(--gold)"
+      : state === "ACTIVE" || state === "BACKGROUND_ACTIVE"
+        ? "var(--primary)"
+        : "var(--muted-foreground)";
+
   return (
-    <div>
-      <div className="flex flex-wrap items-end justify-between gap-2">
-        <div>
-          <p className="num text-2xl font-semibold text-gold">
-            {formatNex(ratePerHour)}
-            <span className="ml-1 font-mono text-[9px] font-normal uppercase tracking-[0.12em] text-muted-foreground">
-              NEX/h
-            </span>
-          </p>
-          <p className="mt-0.5 font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground">
-            confirmed mining curve · last 7 UTC days
-          </p>
-        </div>
-        <span className="flex items-center gap-1 border border-border px-2 py-1 font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
-          <TrendingUp className="size-3 text-primary" /> ledger data
+    <div className="relative flex size-[124px] shrink-0 items-center justify-center sm:size-[142px]">
+      {(state === "ACTIVE" || state === "BACKGROUND_ACTIVE") ? (
+        <span className="absolute inset-2 rounded-full border border-primary/15 heartbeat-gold" />
+      ) : null}
+      <svg viewBox="0 0 120 120" className="size-[120px] -rotate-90 sm:size-[138px]" aria-hidden="true">
+        <circle cx="60" cy="60" r={radius} fill="none" stroke="var(--secondary)" strokeWidth="6" />
+        <circle
+          cx="60"
+          cy="60"
+          r={radius}
+          fill="none"
+          stroke={tone}
+          strokeWidth="6"
+          strokeLinecap="round"
+          strokeDasharray={`${dash} ${circumference}`}
+          className="transition-all duration-700"
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="text-[9px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+          {Math.round(pct)}%
         </span>
+        <span className="num gold-ink mt-1 text-[20px] font-semibold leading-none">
+          {formatNex(todayNex)}
+        </span>
+        <span className="mt-1 text-[9px] text-muted-foreground">of daily cap</span>
       </div>
-      <div className="mt-3 h-[220px] w-full">
-        <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart
-            data={rows}
-            margin={{ top: 8, right: 4, bottom: 0, left: 0 }}
-          >
-            <defs>
-              <linearGradient id="nex-curve" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="var(--gold)" stopOpacity={0.32} />
-                <stop offset="100%" stopColor="var(--gold)" stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid
-              stroke="var(--border)"
-              strokeDasharray="2 4"
-              vertical={false}
-            />
-            <XAxis
-              dataKey="day"
-              tickFormatter={(value: string) => value.slice(5)}
-              tick={{ fontSize: 9, fill: "var(--muted-foreground)" }}
-              axisLine={false}
-              tickLine={false}
-            />
-            <YAxis
-              yAxisId="cumulative"
-              width={72}
-              tickFormatter={(value: number) =>
-                value === 0 ? "0" : value.toExponential(1)
-              }
-              tick={{ fontSize: 9, fill: "var(--muted-foreground)" }}
-              axisLine={false}
-              tickLine={false}
-            />
-            <YAxis yAxisId="daily" orientation="right" hide />
-            <Tooltip
-              contentStyle={{
-                background: "var(--card)",
-                border: "1px solid var(--border)",
-                borderRadius: 2,
-                fontSize: 11,
-              }}
-              labelFormatter={(label) => `UTC ${String(label)}`}
-              formatter={(value) => [formatNex(Number(value)), "NEX"]}
-            />
-            <Bar
-              yAxisId="daily"
-              dataKey="amountNex"
-              fill="var(--primary)"
-              opacity={0.2}
-              radius={[2, 2, 0, 0]}
-            />
-            <Area
-              yAxisId="cumulative"
-              type="monotone"
-              dataKey="cumulativeNex"
-              stroke="var(--gold)"
-              fill="url(#nex-curve)"
-              strokeWidth={2}
-              dot={false}
-            />
-          </ComposedChart>
-        </ResponsiveContainer>
-      </div>
+    </div>
+  );
+}
+
+function NexChart({ data }: { data: NexChartPoint[] }) {
+  const rows = data.length ? data : [{ day: "today", amountNex: 0, cumulativeNex: 0 }];
+  return (
+    <div className="h-[230px] w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <ComposedChart data={rows} margin={{ top: 8, right: 0, bottom: 0, left: -8 }}>
+          <defs>
+            <linearGradient id="home-nex-curve" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--gold)" stopOpacity={0.3} />
+              <stop offset="100%" stopColor="var(--gold)" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid stroke="var(--border)" strokeDasharray="2 5" vertical={false} />
+          <XAxis
+            dataKey="day"
+            tickFormatter={(value: string) => value.slice(5)}
+            tick={{ fontSize: 9, fill: "var(--muted-foreground)" }}
+            axisLine={false}
+            tickLine={false}
+          />
+          <YAxis
+            width={62}
+            tickFormatter={(value: number) => (value === 0 ? "0" : value.toExponential(1))}
+            tick={{ fontSize: 9, fill: "var(--muted-foreground)" }}
+            axisLine={false}
+            tickLine={false}
+          />
+          <Tooltip
+            contentStyle={{
+              background: "var(--popover)",
+              border: "1px solid var(--border)",
+              borderRadius: 12,
+              fontSize: 11,
+            }}
+            labelFormatter={(label) => `UTC ${String(label)}`}
+            formatter={(value) => [formatNex(Number(value)), "NEX"]}
+          />
+          <Bar dataKey="amountNex" fill="var(--primary)" opacity={0.22} radius={[4, 4, 0, 0]} barSize={12} />
+          <Area
+            type="monotone"
+            dataKey="cumulativeNex"
+            stroke="var(--gold)"
+            fill="url(#home-nex-curve)"
+            strokeWidth={2}
+            dot={false}
+          />
+        </ComposedChart>
+      </ResponsiveContainer>
     </div>
   );
 }
 
 export default function Home() {
   const snapshot = useQuery(api.app.snapshot);
-  const settle = useMutation(api.app.settleMiningNow);
-  const startMining = useMutation(api.app.startMining);
-  const [adReady, setAdReady] = useState(false);
-  const [adBusy, setAdBusy] = useState(false);
-  const miningStatus = snapshot?.mining.status;
-
-  useEffect(() => {
-    if (miningStatus !== "active") {
-      const reset = window.setTimeout(() => setAdReady(false), 0);
-      return () => window.clearTimeout(reset);
-    }
-    // A sponsored break becomes available every five minutes of live mining.
-    const id = window.setInterval(() => setAdReady(true), 5 * 60_000);
-    return () => window.clearInterval(id);
-  }, [miningStatus]);
-
-  const watchHomeAd = async () => {
-    if (adBusy) return;
-    setAdBusy(true);
-    const result = await showRewardedAd();
-    setAdBusy(false);
-    if (result.ok) {
-      setAdReady(false);
-      toast.success("Sponsored break finished. Mining stayed live.");
-    } else {
-      toast.error(result.reason);
-    }
-  };
 
   if (!snapshot) {
     return (
-      <div className="space-y-3">
-        {Array.from({ length: 5 }).map((_, index) => (
-          <div
-            key={index}
-            className="h-24 animate-pulse rounded-md border border-border/60 bg-card/60"
-          />
-        ))}
+      <div className="space-y-4">
+        <div className="h-10 w-56 animate-pulse rounded-xl bg-card/70" />
+        <div className="h-[250px] animate-pulse rounded-3xl border border-border/60 bg-card/60" />
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="h-80 animate-pulse rounded-2xl border border-border/60 bg-card/60" />
+          <div className="h-80 animate-pulse rounded-2xl border border-border/60 bg-card/60" />
+        </div>
       </div>
     );
   }
@@ -275,467 +178,322 @@ export default function Home() {
   } = snapshot;
 
   const usdValue = balance.totalNex * config.nexUsdRate;
-  const accruing = mining.projectedAccrualNex;
-  const active = mining.status === "active";
+  const active = mining.state === "ACTIVE" || mining.state === "BACKGROUND_ACTIVE";
   const metRequirements = withdrawal.requirements.filter((item) => item.met);
   const firstUnmet = withdrawal.requirements.find((item) => !item.met);
-
-  const handleMine = async () => {
-    try {
-      if (!active) {
-        const started = await startMining();
-        if (started.status === "active" || started.status === "limit") {
-          toast.success(
-            started.status === "limit"
-              ? started.extensionReady
-                ? "Today's normal cap is already reached. Your extra session is unlocked — open Earn to start it."
-                : "Today's normal cap is already reached. Watch 20 verified ads in Earn to unlock extra mining."
-              : "Mining started. It runs only while this app is open.",
-          );
-        } else {
-          toast.error("Mining is paused by the operator or your account.");
-        }
-        return;
-      }
-      const result = await settle();
-      if (result.creditedNex > 0) {
-        toast.success(
-          `${formatNex(result.creditedNex)} NEX settled to your confirmed balance`,
-        );
-      } else if (result.status === "limit") {
-        toast.info(
-          "Normal daily cap reached. Watch 20 verified ads in Mining to unlock another 5 hours.",
-        );
-      } else {
-        toast.info("No new NEX to settle yet. Keep mining.");
-      }
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Settlement failed. Nothing was credited.",
-      );
-    }
-  };
+  const lifetime = balance.lifetimeMinedNex + balance.lifetimeTaskNex + balance.lifetimeAdNex;
 
   return (
-    <div className="space-y-3.5">
-      <div className="flex items-center gap-3">
-        <div className="relative flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border bg-secondary font-mono text-[12px] font-semibold text-gold">
-          {account.photoUrl ? (
-            <img
-              src={account.photoUrl}
-              alt=""
-              referrerPolicy="no-referrer"
-              className="size-full object-cover"
-            />
-          ) : (
-            initials(account.displayName)
-          )}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <p className="truncate text-[13px] font-semibold">
-              {account.displayName}
-            </p>
-            {account.telegramLinked ? (
-              <BadgeCheck className="size-3.5 shrink-0 text-primary" />
-            ) : null}
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="relative flex size-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-gold/25 bg-gold/10 font-mono text-[12px] font-semibold text-gold">
+            {account.photoUrl ? (
+              <img
+                src={account.photoUrl}
+                alt=""
+                referrerPolicy="no-referrer"
+                className="size-full object-cover"
+              />
+            ) : (
+              initials(account.displayName)
+            )}
           </div>
-          <p className="num mt-0.5 text-[10px] text-muted-foreground">
-            {account.nexId}
-          </p>
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
+              <h1 className="truncate text-[19px] font-semibold tracking-tight">
+                {account.displayName}
+              </h1>
+              {account.telegramLinked ? (
+                <BadgeCheck className="size-4 shrink-0 text-primary" />
+              ) : null}
+            </div>
+            <p className="mt-0.5 flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.07em] text-muted-foreground">
+              {account.nexId}
+              <span className="size-1 rounded-full bg-border" />
+              {account.telegramLinked ? "verified Telegram" : "limited session"}
+            </p>
+          </div>
         </div>
-        <CopyButton value={account.nexId} label="ID" />
+        <div className="flex items-center gap-2">
+          <CopyButton value={account.nexId} label="Account ID" />
+          <Button asChild size="sm" variant="outline" className="gap-1.5">
+            <Link to="/app/earn">
+              <Coins className="size-3.5 text-gold" /> Earn
+            </Link>
+          </Button>
+        </div>
       </div>
 
-      <div className="grid gap-3.5 lg:grid-cols-12">
-        <Panel
-          className="lg:col-span-7"
-          eyebrow="Total NEX balance"
-          action={<StatusPill tone="gold">Reward asset</StatusPill>}
-          bodyClassName="p-4 sm:p-5"
-        >
-          <div className="flex flex-wrap items-end gap-x-3 gap-y-1">
-            <p className="num gold-glow text-[40px] leading-none font-semibold tracking-tight text-gold sm:text-[48px]">
-              {formatNex(balance.totalNex)}
-            </p>
-            <span className="mb-1 font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-              NEX
-            </span>
-            {accruing > 0 ? (
-              <span className="mb-1.5 ml-auto font-mono text-[10px] text-up">
-                +{formatNex(accruing)} accruing
-              </span>
-            ) : null}
-          </div>
-          <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="num text-[13px] text-foreground">
-              ≈ {formatUsd(usdValue)}
-            </span>
-            <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
-              at {formatUsd(config.nexUsdRate)} / NEX target
-            </span>
-          </div>
-          <p className="mt-2 max-w-md text-[10.5px] leading-relaxed text-muted-foreground">
-            USD value is an estimate at the published target rate. It is subject
-            to redemption terms and the funded reward pool — not a guaranteed
-            payout.
-          </p>
-
-          <div className="mt-4 grid grid-cols-3 divide-x divide-border/70 border-t border-border/70 pt-3">
-            <Metric
-              label="Available"
-              value={formatNex(balance.availableNex)}
-              sub="spendable"
-            />
-            <Metric
-              label="Reserved"
-              value={formatNex(balance.reservedNex)}
-              sub="in review"
-              className="pl-3"
-            />
-            <Metric
-              label="Lifetime"
-              value={formatNex(balance.lifetimeMinedNex + balance.lifetimeTaskNex)}
-              sub="confirmed"
-              className="pl-3"
-              tone="gold"
-            />
-          </div>
-        </Panel>
-
-        <Panel
-          className="lg:col-span-5"
-          eyebrow="Mining engine"
-          action={
-            statusPill(active, mining.status)
-          }
-        >            <MiningDial
-              todayNex={mining.todayMinedNex}
-              capNex={mining.todayLimitNex}
-              ratePerHour={speed.total}
-              serverNow={snapshot.serverNow}
-              enabled={mining.sessionActive && !mining.extensionActive}
-              status={mining.status}
-            />
-            <div className="mt-2 grid grid-cols-2 divide-x divide-border/70 border-t border-border/70 pt-3">
-              <Metric
-                label="Speed"
-                value={`${formatNex(speed.total)} NEX/h`}
-                sub="server rate"
-                tone="gold"
-              />
-              <Metric
-                label="Remaining today"
-                value={`${formatNex(mining.remainingTodayNex)} NEX`}
-                sub="before cap"
-                className="pl-3"
-              />
-            </div>
-            {mining.extensionActive ? (
-              <div className="mt-2 flex items-center justify-between rounded-sm border border-gold/30 bg-gold/[0.04] px-2.5 py-2">
-                <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-gold">
-                  Extension live
-                </span>
-                <span className="num text-[10px] text-foreground">
-                  +{formatNex(mining.extensionMinedNex)} NEX ·{" "}
-                  {Math.max(
-                    0,
-                    Math.floor(
-                      ((mining.extensionEndsAt ?? snapshot.serverNow) -
-                        snapshot.serverNow) /
-                        60000,
-                    ),
-                  )}
-                  m left
+      <div className="grid gap-4 lg:grid-cols-[1.12fr_0.88fr]">
+        <section className="premium-card card-sheen relative overflow-hidden rounded-3xl p-5 sm:p-7">
+          <div className="pointer-events-none absolute -right-20 -top-24 size-64 rounded-full bg-gold/[0.09] blur-3xl" />
+          <div className="relative flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="label-xs">Total NEX balance</p>
+              <div className="mt-2 flex flex-wrap items-end gap-2.5">
+                <p className="num gold-ink text-[38px] font-semibold leading-none tracking-[-0.055em] sm:text-[58px]">
+                  {formatNex(balance.totalNex)}
+                </p>
+                <span className="mb-1.5 text-[11px] font-semibold text-muted-foreground">NEX</span>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span className="num text-[14px] font-medium">≈ {formatUsd(usdValue)}</span>
+                <span className="rounded-full border border-border/70 bg-white/[0.022] px-2.5 py-1 font-mono text-[8.5px] uppercase tracking-[0.07em] text-muted-foreground">
+                  target {formatUsd(config.nexUsdRate)} / NEX
                 </span>
               </div>
-            ) : null}
-            {mining.extensionUnlocked ? (
-              <Link
-                to="/app/earn/mining"
-                className="mt-2 flex items-center justify-between gap-2 rounded-sm border border-gold/35 bg-gold/[0.05] px-2.5 py-2 font-mono text-[8.5px] uppercase tracking-[0.08em] text-gold"
-              >
-                Extra session unlocked · press Start
-                <ArrowUpRight className="size-3" />
-              </Link>
-            ) : null}
-            {mining.awayMiningActive ? (
-              <p className="mt-2 font-mono text-[8.5px] uppercase tracking-[0.08em] text-up">
-                Background entitlement active · never starts a session
-              </p>
-            ) : null}
-        </Panel>
-      </div>
-
-      <Panel
-        eyebrow="NEX chart"
-        title="Mining curve"
-        action={
-          <span className="flex items-center gap-1 font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
-            <TrendingUp className="size-3 text-primary" /> live ledger
-          </span>
-        }
-      >
-        <NexChart data={snapshot.miningChart} ratePerHour={speed.total} />
-        <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground">
-          Curve is built from confirmed backend mining entries, not a synthetic
-          market price. Daily bars show NEX credited per UTC day.
-        </p>
-      </Panel>
-
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <QuickAction
-          icon={Pickaxe}
-          label={active ? "Mine now" : "Start mining"}
-          hint={active ? "Settle accrual" : "Runs while open"}
-          onClick={handleMine}
-          primary
-        />
-        <QuickAction
-          icon={ListChecks}
-          label="Complete tasks"
-          hint={`${tasks.available} available`}
-          to="/app/earn/tasks"
-        />
-        <QuickAction
-          icon={Users}
-          label="Invite friends"
-          hint={`${referrals.qualified}/${referrals.target} qualified`}
-          to="/app/community/referrals"
-        />
-        <QuickAction
-          icon={Wallet}
-          label="Wallet"
-          hint={withdrawal.eligible ? "Payout ready" : "Deposit · withdraw"}
-          to="/app/wallet"
-        />
-      </div>
-
-      {active && adReady ? (
-        <Panel
-          eyebrow="Sponsored break"
-          title="Watch while mining continues"
-          action={<StatusPill tone="warn">every 5 min</StatusPill>}
-        >
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-[12px] font-medium">
-                A rewarded sponsor ad is ready.
-              </p>
-              <p className="mt-1 text-[10.5px] leading-relaxed text-muted-foreground">
-                The ad supports NEXPOOL. It grants no NEX and does not replace
-                the verified ad task — your mining session keeps running.
-              </p>
             </div>
-            <Button
-              size="sm"
-              onClick={watchHomeAd}
-              disabled={adBusy}
-              className="shrink-0 gap-1.5 font-mono text-[10px] uppercase tracking-[0.1em]"
-            >
-              <Play className="size-3.5" />
-              {adBusy ? "Opening…" : "Watch ad"}
-            </Button>
+            <StatusPill tone={active ? "up" : mining.state === "CAP_REACHED" ? "gold" : "muted"}>
+              {active ? "Mining live" : mining.state === "CAP_REACHED" ? "Daily cap" : "Mining idle"}
+            </StatusPill>
           </div>
-        </Panel>
-      ) : null}
 
-      <div className="grid gap-3.5 lg:grid-cols-12">
+          <p className="relative mt-4 max-w-lg text-[10.5px] leading-relaxed text-muted-foreground">
+            Target valuation only. Redemption depends on verified activity, compliance
+            checks and the funded reward pool — it is not a guaranteed cash balance.
+          </p>
+
+          <div className="relative mt-6 grid grid-cols-2 gap-x-5 gap-y-4 border-t border-border/60 pt-5 sm:grid-cols-4">
+            <Metric label="Available" value={formatNex(balance.availableNex)} sub="confirmed" />
+            <Metric label="Reserved" value={formatNex(balance.reservedNex)} sub="withdrawal review" tone="warn" />
+            <Metric label="Accruing" value={formatNex(mining.projectedAccrualNex)} sub="server window" tone="up" />
+            <Metric label="Lifetime" value={formatNex(lifetime)} sub="mined + tasks + ads" tone="gold" />
+          </div>
+        </section>
+
         <Panel
-          className="lg:col-span-7"
-          eyebrow="Withdrawal eligibility"
+          eyebrow="Mining overview"
+          title={
+            active
+              ? mining.state === "BACKGROUND_ACTIVE"
+                ? "Background session"
+                : "Session in progress"
+              : mining.state === "CAP_REACHED"
+                ? "Normal allowance complete"
+                : "Ready to start"
+          }
+          action={<StatusPill tone={active ? "up" : mining.state === "CAP_REACHED" ? "gold" : "muted"}>{mining.state.replace("_", " ")}</StatusPill>}
+        >
+          <div className="flex items-center gap-4">
+            <HomeMiningRing todayNex={mining.todayMinedNex} capNex={mining.todayLimitNex} state={mining.state} />
+            <div className="min-w-0 flex-1 space-y-2.5">
+              <div className="flex items-center justify-between gap-3 border-b border-border/55 pb-2">
+                <span className="text-[10.5px] text-muted-foreground">Speed</span>
+                <span className="num text-[12px] font-semibold text-gold">{formatNex(speed.total)} NEX/h</span>
+              </div>
+              <div className="flex items-center justify-between gap-3 border-b border-border/55 pb-2">
+                <span className="text-[10.5px] text-muted-foreground">Remaining</span>
+                <span className="num text-[12px] font-semibold">{formatNex(mining.remainingTodayNex)} NEX</span>
+              </div>
+              <div className="flex items-center justify-between gap-3 border-b border-border/55 pb-2">
+                <span className="text-[10.5px] text-muted-foreground">Background</span>
+                <span className={cn("text-[10.5px] font-semibold", mining.awayMiningActive ? "text-up" : "text-muted-foreground")}>
+                  {mining.awayMiningActive ? "Active" : "Locked"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[10.5px] text-muted-foreground">Extra session</span>
+                <span className={cn("text-[10.5px] font-semibold", mining.extensionActive ? "text-gold" : mining.extensionStartable ? "text-gold" : "text-muted-foreground")}>
+                  {mining.extensionActive ? "Live" : mining.extensionStartable ? "Ready" : "Locked"}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <Button asChild size="sm" className="mt-4 w-full gap-1.5">
+            <Link to="/app/earn/mining">
+              <Pickaxe className="size-3.5" />
+              {active ? "Open mining controls" : "Open mining"}
+            </Link>
+          </Button>
+          {mining.extensionStartable ? (
+            <Link to="/app/earn/mining" className="mt-2 flex items-center justify-center gap-1 text-[10px] font-semibold text-gold">
+              Extra session ready to start <ArrowUpRight className="size-3" />
+            </Link>
+          ) : null}
+        </Panel>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+        <QuickAction icon={Pickaxe} label="Mine now" hint={active ? "Open live engine" : "Start on your terms"} to="/app/earn/mining" primary />
+        <QuickAction icon={ListChecks} label="Complete tasks" hint={`${tasks.available} available`} to="/app/earn/tasks" />
+        <QuickAction icon={Users} label="Invite friends" hint={`${referrals.qualified}/${referrals.target} qualified`} to="/app/community/referrals" />
+        <QuickAction icon={Wallet} label="Open wallet" hint={withdrawal.eligible ? "Payout ready" : "Deposit · withdraw"} to="/app/wallet" />
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[0.92fr_1.08fr]">
+        <Panel
+          eyebrow="Withdrawal readiness"
+          title={withdrawal.eligible ? "All checks complete" : `${metRequirements.length}/${withdrawal.requirements.length} checks complete`}
           action={
-            <Link
-              to="/app/withdraw"
-              className="flex items-center gap-1 font-mono text-[9px] uppercase tracking-[0.1em] text-primary"
-            >
-              Details <ChevronRight className="size-3" />
+            <Link to="/app/withdraw" className="text-[10px] font-semibold text-primary">
+              Review
             </Link>
           }
         >
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-[13px] font-medium">
-                {withdrawal.eligible
-                  ? "All requirements met"
-                  : `${metRequirements.length}/${withdrawal.requirements.length} requirements met`}
-              </p>
-              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                {withdrawal.eligible
-                  ? "You can request a payout. The operator still verifies treasury and compliance before broadcasting."
-                  : firstUnmet?.detail}
-              </p>
-            </div>
+          <div className="flex items-start justify-between gap-3">
+            <p className="text-[11.5px] leading-relaxed text-muted-foreground">
+              {withdrawal.eligible
+                ? "You can request a payout. The operator still verifies treasury and compliance before broadcasting."
+                : firstUnmet?.detail}
+            </p>
             <StatusPill tone={withdrawal.eligible ? "up" : "warn"}>
               {withdrawal.eligible ? "Eligible" : "Pending"}
             </StatusPill>
           </div>
-          <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2">
-            {withdrawal.requirements.slice(0, 4).map((item) => (
-              <div key={item.key} className="min-w-0">
-                <p className="truncate text-[10px] text-muted-foreground">
-                  {item.label}
-                </p>
-                <p
+          <div className="mt-4 space-y-2">
+            {withdrawal.requirements.slice(0, 5).map((item) => (
+              <div key={item.key} className="flex items-center gap-2.5 rounded-xl border border-border/55 bg-white/[0.014] px-3 py-2">
+                <span
                   className={cn(
-                    "num mt-0.5 truncate text-[10.5px]",
-                    item.met ? "text-up" : "text-warn",
+                    "flex size-5 shrink-0 items-center justify-center rounded-full border",
+                    item.met ? "border-up/35 bg-up/10 text-up" : "border-warn/30 bg-warn/10 text-warn",
                   )}
                 >
+                  {item.met ? <ShieldCheck className="size-3" /> : <span className="size-1.5 rounded-full bg-current" />}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-[10.5px] font-medium">{item.label}</span>
+                <span className={cn("num max-w-[46%] truncate text-right text-[9.5px]", item.met ? "text-up" : "text-warn")}>
                   {item.value}
-                </p>
+                </span>
               </div>
             ))}
           </div>
-          <Link
-            to="/app/withdraw"
-            className="mt-3 flex h-8 items-center justify-center gap-1.5 rounded-sm border border-border bg-secondary/40 font-mono text-[10px] uppercase tracking-[0.12em] transition-colors hover:bg-secondary"
-          >
-            Review requirements <ArrowUpRight className="size-3" />
-          </Link>
+          <Button asChild variant="outline" size="sm" className="mt-3 w-full gap-1.5">
+            <Link to="/app/withdraw">View requirements <ChevronRight className="size-3" /></Link>
+          </Button>
         </Panel>
 
         <Panel
-          className="lg:col-span-5"
-          eyebrow="Mining speed"
+          eyebrow="Earnings pulse"
+          title="Confirmed mining curve"
           action={
-            <Link
-              to="/app/earn/mining"
-              className="font-mono text-[9px] uppercase tracking-[0.1em] text-primary"
-            >
-              Open
-            </Link>
+            <span className="flex items-center gap-1 font-mono text-[8.5px] uppercase tracking-[0.08em] text-muted-foreground">
+              <TrendingUp className="size-3 text-primary" /> ledger
+            </span>
           }
         >
-          <div className="flex items-end justify-between">
+          <div className="flex items-end justify-between gap-3">
             <div>
-              <p className="num text-2xl font-semibold text-gold">
-                {formatNex(speed.total)}
-              </p>
-              <p className="font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground">
-                NEX per hour
-              </p>
+              <p className="num text-[26px] font-semibold text-gold">{formatNex(speed.total)}</p>
+              <p className="mt-1 text-[10.5px] text-muted-foreground">NEX per hour · confirmed server rate</p>
             </div>
-            <GaugeIcon className="size-6 text-primary/70" />
+            <div className="text-right">
+              <p className="label-xs">Today</p>
+              <p className="num mt-1 text-[14px] font-semibold">{formatNex(mining.todayTotalNex)}</p>
+              <p className="mt-0.5 text-[9px] text-muted-foreground">normal + extension</p>
+            </div>
           </div>
-          <div className="mt-4 space-y-2 border-t border-border/70 pt-3">
-            <SpeedRow label="Base" value={speed.base} total={speed.total} />
-            <SpeedRow label="Task bonuses" value={speed.taskBonus} total={speed.total} />
-            <SpeedRow
-              label={`Referral bonuses (${referrals.qualified})`}
-              value={speed.referralBonus}
-              total={speed.total}
-            />
-            <SpeedRow
-              label={`Level bonuses (L${speed.claimedLevel})`}
-              value={speed.levelBonus}
-              total={speed.total}
-            />
-          </div>
+          <NexChart data={snapshot.miningChart} />
+          <p className="mt-2 text-[9.5px] leading-relaxed text-muted-foreground">
+            Built from confirmed backend mining entries. No synthetic price and no
+            frontend balance projection.
+          </p>
         </Panel>
       </div>
 
-      <div className="grid gap-3.5 lg:grid-cols-12">
+      <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
         <Panel
-          className="lg:col-span-7"
-          eyebrow="Referral qualification"
+          eyebrow="Recent activity"
+          title="Latest account movements"
           action={
-            <Link
-              to="/app/community/referrals"
-              className="font-mono text-[9px] uppercase tracking-[0.1em] text-primary"
-            >
-              Invite
+            <Link to="/app/history" className="flex items-center gap-1 text-[10px] font-semibold text-primary">
+              Full history <ChevronRight className="size-3" />
             </Link>
           }
+          bodyClassName="p-0"
         >
-          <div className="flex items-end justify-between">
-            <div>
-              <p className="num text-2xl font-semibold">
-                {referrals.qualified}
-                <span className="text-sm text-muted-foreground">
-                  /{referrals.target}
-                </span>
-              </p>
-              <p className="mt-1 font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground">
-                qualified referrals
+          {ledger.length === 0 ? (
+            <div className="p-6 text-center">
+              <Coins className="mx-auto size-5 text-muted-foreground" />
+              <p className="mt-2 text-[12px] font-medium">No movements yet</p>
+              <p className="mt-1 text-[10.5px] text-muted-foreground">
+                Mining settlements, ad rewards and verified tasks appear here.
               </p>
             </div>
-            <div className="text-right">
-              <p className="num text-[13px] text-gold">
-                +{formatNex(referrals.bonusNexPerHour)} NEX/h
-              </p>
-              <p className="font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
-                referral speed
-              </p>
-            </div>
-          </div>
-          <ProgressBar
-            value={referrals.qualified}
-            max={referrals.target}
-            ticks={Math.min(referrals.target, 10)}
-            tone="gold"
-            className="mt-3"
-          />
-          <div className="mt-3 grid grid-cols-3 gap-2 border-t border-border/70 pt-3">
-            <Metric label="Invited" value={referrals.total} />
-            <Metric label="Qualified" value={referrals.qualified} tone="up" />
-            <Metric label="In progress" value={referrals.incomplete} tone="warn" />
-          </div>
+          ) : (
+            <ul className="divide-y divide-border/55">
+              {ledger.slice(0, 6).map((row) => (
+                <li key={row.id} className="flex items-center gap-3 px-5 py-3">
+                  <span
+                    className={cn(
+                      "flex size-9 shrink-0 items-center justify-center rounded-full border",
+                      row.kind === "mining"
+                        ? "border-primary/20 bg-primary/8 text-primary"
+                        : row.kind === "ad"
+                          ? "border-gold/25 bg-gold/10 text-gold"
+                          : row.kind === "deposit"
+                            ? "border-gold/25 bg-gold/10 text-gold"
+                            : row.kind === "task"
+                              ? "border-up/20 bg-up/8 text-up"
+                              : "border-border bg-secondary/45 text-muted-foreground",
+                    )}
+                  >
+                    {row.kind === "mining" ? (
+                      <GaugeIcon className="size-3.5" />
+                    ) : row.kind === "ad" ? (
+                      <Coins className="size-3.5" />
+                    ) : row.kind === "task" ? (
+                      <ListChecks className="size-3.5" />
+                    ) : (
+                      <Wallet className="size-3.5" />
+                    )}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[11.5px] font-semibold">{row.memo}</p>
+                    <p className="mt-0.5 font-mono text-[8px] uppercase tracking-[0.07em] text-muted-foreground">
+                      {formatDateTime(row.createdAt)}
+                    </p>
+                  </div>
+                  <span className={cn("num shrink-0 text-[12px] font-semibold", row.amountNex >= 0 ? "text-up" : "text-down")}>
+                    {row.amountNex >= 0 ? "+" : "−"}
+                    {formatNex(Math.abs(row.amountNex))}
+                    <span className="ml-1 font-sans text-[8px] text-muted-foreground">NEX</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
         </Panel>
 
         <Panel
-          className="lg:col-span-5"
           eyebrow="Notifications"
+          title="Worth knowing"
           action={
-            <Link
-              to="/app/notifications"
-              className="flex items-center gap-1 font-mono text-[9px] uppercase tracking-[0.1em] text-primary"
-            >
+            <Link to="/app/notifications" className="flex items-center gap-1 text-[10px] font-semibold text-primary">
               All <ChevronRight className="size-3" />
             </Link>
           }
           bodyClassName="p-0"
         >
           {notifications.rows.length === 0 ? (
-            <div className="px-4 py-6 text-center">
-              <Bell className="mx-auto size-4 text-muted-foreground" />
-              <p className="mt-2 text-[11.5px] text-muted-foreground">
-                No notifications yet. Task verifications and payout events appear
-                here.
-              </p>
+            <div className="p-6 text-center">
+              <Bell className="mx-auto size-5 text-muted-foreground" />
+              <p className="mt-2 text-[12px] font-medium">Nothing new</p>
+              <p className="mt-1 text-[10.5px] text-muted-foreground">Verified rewards and payout updates appear here.</p>
             </div>
           ) : (
-            <ul>
-              {notifications.rows.slice(0, 3).map((note) => (
-                <li
-                  key={note.id}
-                  className="border-b border-border/60 px-4 py-2.5 last:border-0"
-                >
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={cn(
-                        "size-1.5 rounded-full",
-                        note.kind === "wallet"
-                          ? "bg-gold"
-                          : note.kind === "task"
-                            ? "bg-primary"
-                            : note.kind === "referral"
-                              ? "bg-up"
-                              : "bg-muted-foreground",
-                      )}
-                    />
-                    <p className="truncate text-[11.5px] font-medium">
-                      {note.title}
-                    </p>
-                    {!note.read ? (
-                      <span className="ml-auto font-mono text-[8px] uppercase tracking-[0.14em] text-primary">
-                        new
-                      </span>
-                    ) : null}
+            <ul className="divide-y divide-border/55">
+              {notifications.rows.slice(0, 4).map((note) => (
+                <li key={note.id} className="flex items-start gap-2.5 px-5 py-3">
+                  <span
+                    className={cn(
+                      "mt-1.5 size-1.5 shrink-0 rounded-full",
+                      note.kind === "wallet"
+                        ? "bg-gold"
+                        : note.kind === "task"
+                          ? "bg-primary"
+                          : note.kind === "referral"
+                            ? "bg-up"
+                            : "bg-muted-foreground/60",
+                    )}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[11.5px] font-semibold">{note.title}</p>
+                    <p className="mt-0.5 line-clamp-2 text-[10px] leading-relaxed text-muted-foreground">{note.body}</p>
                   </div>
-                  <p className="mt-0.5 line-clamp-1 pl-3.5 text-[10.5px] text-muted-foreground">
-                    {note.body}
-                  </p>
+                  {!note.read ? <span className="mt-0.5 font-mono text-[7.5px] uppercase tracking-[0.1em] text-primary">new</span> : null}
                 </li>
               ))}
             </ul>
@@ -743,87 +501,17 @@ export default function Home() {
         </Panel>
       </div>
 
-      <Panel
-        eyebrow="Recent activity"
-        title="Latest ledger entries"
-        action={
-          <Link
-            to="/app/history"
-            className="flex items-center gap-1 font-mono text-[9px] uppercase tracking-[0.1em] text-primary"
-          >
-            All <ChevronRight className="size-3" />
-          </Link>
-        }
-        bodyClassName="p-0"
-      >
-        {ledger.length === 0 ? (
-          <p className="px-4 py-5 text-center text-[11.5px] leading-relaxed text-muted-foreground">
-            Nothing posted yet. Mining accruals and verified rewards appear here
-            the moment the backend writes them.
-          </p>
-        ) : (
-          <ul className="divide-y divide-border/60">
-            {ledger.slice(0, 5).map((row) => (
-              <li key={row.id} className="flex items-center gap-2.5 px-4 py-2.5">
-                <span
-                  className={cn(
-                    "size-1.5 shrink-0 rounded-full",
-                    row.kind === "mining"
-                      ? "bg-primary"
-                      : row.kind === "deposit"
-                        ? "bg-gold"
-                        : row.kind === "task"
-                          ? "bg-up"
-                          : row.kind === "referral"
-                            ? "bg-gold"
-                            : row.kind === "withdrawal"
-                              ? "bg-warn"
-                              : "bg-muted-foreground",
-                  )}
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[11.5px] font-medium">{row.memo}</p>
-                  <p className="font-mono text-[8.5px] uppercase tracking-[0.1em] text-muted-foreground">
-                    {formatDateTime(row.createdAt)}
-                  </p>
-                </div>
-                <span
-                  className={cn(
-                    "num shrink-0 text-[11.5px] font-semibold",
-                    row.amountNex >= 0 ? "text-up" : "text-down",
-                  )}
-                >
-                  {row.amountNex >= 0 ? "+" : "−"}
-                  {Math.abs(row.amountNex).toFixed(4)}
-                  <span className="ml-0.5 font-mono text-[8px] text-muted-foreground">
-                    NEX
-                  </span>
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Panel>
-
-      <div className="flex items-start gap-2.5 rounded-md border border-border/70 bg-panel/60 px-3.5 py-3">
+      <div className="flex items-start gap-3 rounded-2xl border border-border/60 bg-white/[0.018] px-4 py-3.5">
         <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" />
         <p className="text-[10.5px] leading-relaxed text-muted-foreground">
-          Mining never starts automatically, including after the 00:00 UTC daily
-          reset. Normal mining pauses within 60 seconds of leaving unless a
-          background entitlement continues a session you already started. The
-          extra five-hour session is a separate authorized bucket. Changing your
-          device clock does not create earnings.
+          NEXPOOL never starts mining automatically. A daily 00:00 UTC reset only
+          refreshes the normal allowance. Background eligibility continues an
+          already-started session; the extra five-hour bucket must be started
+          separately. Every confirmed movement is written to the backend ledger.
         </p>
       </div>
     </div>
   );
-}
-
-function statusPill(active: boolean, status: string) {
-  if (status === "limit") return <StatusPill tone="warn">Cap reached</StatusPill>;
-  if (status === "restricted") return <StatusPill tone="down">Restricted</StatusPill>;
-  if (!active) return <StatusPill tone="muted">Paused</StatusPill>;
-  return <StatusPill tone="up">Live</StatusPill>;
 }
 
 function QuickAction({
@@ -831,75 +519,41 @@ function QuickAction({
   label,
   hint,
   to,
-  onClick,
   primary,
 }: {
   icon: typeof Coins;
   label: string;
   hint: string;
-  to?: string;
-  onClick?: () => void;
+  to: string;
   primary?: boolean;
 }) {
-  const content = (
-    <>
-      <span
-        className={cn(
-          "flex size-7 items-center justify-center rounded-sm border",
-          primary
-            ? "border-primary/40 bg-primary/10 text-primary"
-            : "border-border bg-secondary/60 text-muted-foreground",
-        )}
-      >
-        <Icon className="size-3.5" />
-      </span>
-      <span className="min-w-0 flex-1 text-left">
-        <span className="block truncate text-[11.5px] font-medium">{label}</span>
-        <span className="mt-0.5 block truncate font-mono text-[8.5px] uppercase tracking-[0.08em] text-muted-foreground">
-          {hint}
+  return (
+    <Link
+      to={to}
+      className={cn(
+        "group flex min-h-[92px] flex-col justify-between rounded-2xl border p-3.5 transition-all",
+        primary
+          ? "border-primary/30 bg-primary/[0.075] hover:border-primary/50 hover:bg-primary/[0.11]"
+          : "border-border/65 bg-card/70 hover:border-border hover:bg-card",
+      )}
+    >
+      <span className="flex items-start justify-between gap-2">
+        <span
+          className={cn(
+            "flex size-9 items-center justify-center rounded-xl border",
+            primary
+              ? "border-primary/25 bg-primary/12 text-primary"
+              : "border-border/70 bg-white/[0.03] text-muted-foreground",
+          )}
+        >
+          <Icon className="size-4" />
         </span>
+        <ArrowUpRight className="size-3.5 text-muted-foreground/60 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-foreground" />
       </span>
-      <ArrowUpRight className="size-3 shrink-0 text-muted-foreground" />
-    </>
-  );
-  const classes = cn(
-    "flex items-center gap-2 rounded-md border p-2.5 transition-colors",
-    primary
-      ? "border-primary/40 bg-primary/[0.06] hover:bg-primary/[0.1]"
-      : "border-border/80 bg-card hover:bg-secondary/50",
-  );
-  if (to) {
-    return (
-      <Link to={to} className={classes}>
-        {content}
-      </Link>
-    );
-  }
-  return (
-    <button type="button" onClick={onClick} className={classes}>
-      {content}
-    </button>
-  );
-}
-
-function SpeedRow({
-  label,
-  value,
-  total,
-}: {
-  label: string;
-  value: number;
-  total: number;
-}) {
-  const pct = total > 0 ? (value / total) * 100 : 0;
-  return (
-    <div>
-      <div className="flex items-center justify-between font-mono text-[10px]">
-        <span className="text-muted-foreground">{label}</span>
-        <span className="num text-foreground">{formatNex(value)}</span>
-      </div>
-      <ProgressBar value={value} max={Math.max(total, 0.0001)} className="mt-1" />
-      <span className="sr-only">{pct.toFixed(0)} percent</span>
-    </div>
+      <span>
+        <span className="block text-[11.5px] font-semibold text-foreground">{label}</span>
+        <span className="mt-1 block text-[9.5px] leading-relaxed text-muted-foreground">{hint}</span>
+      </span>
+    </Link>
   );
 }

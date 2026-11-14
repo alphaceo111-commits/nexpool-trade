@@ -38,10 +38,6 @@ declare global {
   }
 }
 
-export type RewardedAdResult =
-  | { ok: true }
-  | { ok: false; reason: string };
-
 export type VerifiedRewardedAdResult =
   | { ok: true; result: MonetagRewardEvent }
   | { ok: false; reason: string };
@@ -70,58 +66,6 @@ async function waitForRuntime(): Promise<MonetagRuntime | null> {
     await new Promise((resolve) => window.setTimeout(resolve, 250));
   }
   return window.show_12157822 ?? null;
-}
-
-async function run(
-  runtime: MonetagRuntime,
-  options?: MonetagShowOptions,
-): Promise<RewardedAdResult> {
-  try {
-    // Kept for the existing task/home ad flows. It reports that the SDK
-    // finished an ad; the task backend still applies its own timing check.
-    await (options ? runtime(options) : runtime());
-    return { ok: true };
-  } catch (error) {
-    return { ok: false, reason: errorMessage(error) };
-  }
-}
-
-/**
- * Opens a Monetag rewarded ad on zone 12157822.
- *
- * - `type: "end"` is the classic Rewarded Interstitial: the SDK resolves
- *   after the ad is shown and closed. Mining accepts the result only when
- *   `reward_event_type === "valued"` and the SDK never classifies it as a
- *   click.
- * - `type: "pop"` is the Rewarded Popup: the SDK resolves after the user
- *   watches till the end or closes an interstitial-format ad. The same
- *   valued/click checks apply before any progress is issued.
- * - `type: "inApp"` is an In-App Interstitial with the frequency/capping/
- *   interval/timeout settings from the Monetag docs. The last digit of
- *   `inAppSettings` controls cross-page session retention.
- *
- * Any format that returns a confirmed reward event is wired to the same
- * backend confirmation path; the SDK result never credits NEX directly.
- */
-export function showRewardedAd(): Promise<RewardedAdResult>
-export function showRewardedAd(): Promise<RewardedAdResult> {
-  if (typeof window === "undefined") {
-    return Promise.resolve({
-      ok: false,
-      reason: "Rewarded ads only run inside the app.",
-    });
-  }
-  const runtime = window.show_12157822;
-  if (typeof runtime === "function") return run(runtime);
-  return waitForRuntime().then((loaded) =>
-    loaded
-      ? run(loaded)
-      : {
-          ok: false as const,
-          reason:
-            "The ad network could not be reached. Check the connection and try again.",
-        },
-  );
 }
 
 /**

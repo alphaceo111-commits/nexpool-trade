@@ -199,32 +199,56 @@ http.route({
       return new Response("postback endpoint not configured", { status: 503 });
     }
     const url = new URL(request.url);
-    const secret = url.searchParams.get("secret") ?? "";
+    const secret =
+      request.headers.get("x-monetag-secret") ??
+      url.searchParams.get("secret") ??
+      "";
     if (!secret || !sameSecret(secret, expected)) {
       return new Response("unauthorized", { status: 403 });
     }
 
-    const ymid = url.searchParams.get("ymid") ?? "";
-    const telegramId = url.searchParams.get("telegram_id") ?? "";
+    const ymid = (url.searchParams.get("ymid") ?? "").trim();
+    const rewardEventType = (
+      url.searchParams.get("reward_event_type") ?? ""
+    ).trim();
+    const eventType = (
+      url.searchParams.get("event_type") ?? "impression"
+    )
+      .trim()
+      .slice(0, 64);
+    const telegramId = (url.searchParams.get("telegram_id") ?? "").trim();
     const priceRaw = url.searchParams.get("estimated_price");
     const price = priceRaw === null ? undefined : Number(priceRaw);
-    if (!ymid) {
-      return new Response(JSON.stringify({ ok: true, recorded: false }), {
-        status: 200,
+
+    const invalid = (reason: string) =>
+      new Response(JSON.stringify({ ok: false, error: reason }), {
+        status: 400,
         headers: { "content-type": "application/json" },
       });
+
+    if (!ymid || ymid.length > 128) return invalid("invalid ymid");
+    if (rewardEventType !== "valued" && rewardEventType !== "non_valued") {
+      return invalid("invalid reward_event_type");
+    }
+    if (!eventType || eventType === "click") return invalid("invalid event_type");
+    if (telegramId && !/^\d+$/.test(telegramId)) {
+      return invalid("invalid telegram_id");
+    }
+    if (
+      price !== undefined &&
+      (!Number.isFinite(price) || price < 0)
+    ) {
+      return invalid("invalid estimated_price");
     }
 
     const result = await ctx.runMutation(
       internal.miningAds.recordMonetagPostback,
       {
         ymid,
-        telegramId: /^\d+$/.test(telegramId) ? telegramId : undefined,
-        eventType: url.searchParams.get("event_type") ?? "impression",
-        rewardEventType:
-          url.searchParams.get("reward_event_type") ?? "non_valued",
-        estimatedPriceUsd:
-          price !== undefined && Number.isFinite(price) ? price : undefined,
+        telegramId: telegramId || undefined,
+        eventType,
+        rewardEventType,
+        estimatedPriceUsd: price,
       },
     );
     return new Response(JSON.stringify({ ok: true, ...result }), {

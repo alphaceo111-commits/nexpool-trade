@@ -29,6 +29,22 @@ The convex server has a separate set of environment variables that are accessibl
 
 Currently, these variables include auth-specific keys: JWKS, JWT_PRIVATE_KEY, and SITE_URL.
 
+### Monetag postback
+
+Rewarded Monetag views fail closed unless the Convex deployment has a server-side `MONETAG_POSTBACK_SECRET`. Do not expose this value to the client or put it in a `VITE_*` variable.
+
+Set the same secret in the Monetag postback URL as the `secret` query parameter (or send it as `x-monetag-secret`). The endpoint is:
+
+```text
+https://<your-convex-site-url>/monetag/postback?secret=<MONETAG_POSTBACK_SECRET>&ymid={ymid}&event_type={event_type}&reward_event_type={reward_event_type}&estimated_price={estimated_price}
+```
+
+The backend requires `ymid` to match a server-issued challenge, accepts only `valued` / `non_valued` reward events, rejects clicks, checks the Telegram identity when supplied, and credits the verified-ad reward once per ymid. Replayed postbacks are idempotent. The same challenge flow settles task-linked Monetag ads; their configured task reward is credited through the existing task ledger, not a client timer.
+
+Run the postback contract tests with `bun run test`.
+
+Set it from the project Keys/API keys panel or with `bunx convex env set MONETAG_POSTBACK_SECRET <value>` on the intended deployment. Never set production secrets from the client bundle.
+
 
 # Using Authentication (Important!)
 

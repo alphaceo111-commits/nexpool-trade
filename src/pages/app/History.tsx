@@ -31,6 +31,7 @@ import { TON_EXPLORER_TX } from "@/lib/ton";
 const KINDS = [
   { key: "all", label: "All" },
   { key: "mining", label: "Mining" },
+  { key: "ad", label: "Ad rewards" },
   { key: "task", label: "Tasks" },
   { key: "referral", label: "Referrals" },
   { key: "deposit", label: "Deposits" },
@@ -43,6 +44,7 @@ type Kind = (typeof KINDS)[number]["key"];
 
 const KIND_META = {
   mining: { icon: Gauge, label: "Mining accrual" },
+  ad: { icon: Coins, label: "Verified ad reward" },
   task: { icon: ListChecks, label: "Task reward" },
   referral: { icon: Users, label: "Referral bonus" },
   level: { icon: Trophy, label: "Level reward" },
@@ -85,7 +87,7 @@ export default function History() {
   return (
     <div className="space-y-3">
       <SectionHeading
-        index="08"
+        index="Activity"
         title="History"
         body="Every NEX movement recorded by the backend ledger."
         action={
@@ -106,7 +108,7 @@ export default function History() {
               type="button"
               onClick={() => setKind(item.key)}
               className={cn(
-                "rounded-sm border px-2.5 py-1.5 font-mono text-[9px] uppercase tracking-[0.1em] transition-colors",
+                "rounded-xl border px-2.5 py-1.5 font-mono text-[9px] uppercase tracking-[0.1em] transition-colors",
                 kind === item.key
                   ? "border-primary/40 bg-primary/10 text-primary"
                   : "border-border/70 text-muted-foreground hover:bg-secondary/50 hover:text-foreground",
@@ -118,7 +120,7 @@ export default function History() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
         <Metric
           label="Credited"
           value={`+${totals.credited.toFixed(4)}`}
@@ -140,6 +142,12 @@ export default function History() {
           label="Lifetime tasks"
           value={history ? history.lifetime.taskNex.toFixed(4) : "—"}
           sub="NEX"
+        />
+        <Metric
+          label="Lifetime ad rewards"
+          value={history ? history.lifetime.adNex.toFixed(4) : "—"}
+          sub="NEX"
+          tone="gold"
         />
       </div>
 
@@ -178,7 +186,7 @@ export default function History() {
                 };
               return (
                 <li key={row.id} className="flex items-start gap-2.5 px-4 py-2.5">
-                  <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-sm border border-border/70 bg-secondary/40 text-muted-foreground">
+                  <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-xl border border-border/70 bg-secondary/40 text-muted-foreground">
                     <meta.icon className="size-3.5" />
                   </span>
                   <div className="min-w-0 flex-1">

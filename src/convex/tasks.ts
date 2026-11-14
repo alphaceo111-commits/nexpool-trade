@@ -7,6 +7,8 @@ import {
   internalQuery,
   mutation,
 } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
+import type { MutationCtx } from "./_generated/server";
 import { notifyUser, requireProfile, roundNex } from "./engine";
 import { DEFAULT_TASK_XP, awardXp, claimedLevel } from "./levels";
 import { syncReferralProgress } from "./referralEngine";
@@ -111,14 +113,15 @@ export const markCompletion = internalMutation({
  * Verified completion -> confirmed NEX + mining-speed bonus. Idempotent: the
  * completion status is re-checked inside the transaction.
  */
-export const grantTaskReward = internalMutation({
+export async function grantTaskRewardForCompletion(
+  ctx: MutationCtx,
   args: {
-    completionId: v.id("taskCompletions"),
-    verifiedBy: v.string(),
-    note: v.string(),
+    completionId: Id<"taskCompletions">;
+    verifiedBy: string;
+    note: string;
   },
-  handler: async (ctx, args) => {
-    const completion = await ctx.db.get(args.completionId);
+) {
+  const completion = await ctx.db.get(args.completionId);
     if (!completion) throw new Error("Completion not found.");
     if (completion.status === "verified") {
       return { granted: false, reason: "already-verified" as const };
@@ -195,7 +198,16 @@ export const grantTaskReward = internalMutation({
     await syncReferralProgress(ctx, updatedProfile);
 
     return { granted: true, rewardNex: reward, xp: xpAward.xp };
+}
+
+export const grantTaskReward = internalMutation({
+  args: {
+    completionId: v.id("taskCompletions"),
+    verifiedBy: v.string(),
+    note: v.string(),
   },
+  handler: async (ctx, args) =>
+    await grantTaskRewardForCompletion(ctx, args),
 });
 
 const TELEGRAM_MEMBER_STATES = new Set([
@@ -424,33 +436,17 @@ export const verifyTask = action({
     }
 
     if (task.verification === "in_app_ad") {
-      const minSeconds = task.minViewSeconds ?? 15;
-      // Every "start spot" tap re-stamps submittedAt, so the clock resets per view.
-      const startedAt =
-        context.completion?.submittedAt ?? context.completion?.startedAt ?? Date.now();
-      const watched = Math.floor((Date.now() - startedAt) / 1000);
-      if (watched < minSeconds) {
-        await ctx.runMutation(internal.tasks.markCompletion, {
-          completionId,
-          status: "pending",
-          note: `Sponsored spot open for ${watched}s of ${minSeconds}s. Claim unlocks at the full view time.`,
-        });
-        return {
-          status: "pending",
-          message: `Keep the sponsored spot open for ${minSeconds - watched}s more, then claim.`,
-        };
-      }
-      const granted = await ctx.runMutation(internal.tasks.grantTaskReward, {
+      // A client timer is never proof. In-app ad rewards settle exclusively via
+      // the secret-authenticated Monetag postback challenge in miningAds.
+      await ctx.runMutation(internal.tasks.markCompletion, {
         completionId,
-        verifiedBy: "in-app-view",
-        note: `Sponsored spot timed by the server at ${watched}s (minimum ${minSeconds}s).`,
+        status: "unavailable",
+        note: "Awaiting a secret-authenticated Monetag provider postback.",
       });
       return {
-        status: "verified",
-        message: granted.granted
-          ? "View timed and reward credited."
-          : "Already verified.",
-        rewardNex: granted.rewardNex ?? 0,
+        status: "unavailable",
+        message:
+          "This campaign is verified by Monetag's server postback. Open the rewarded view from the task card; a client timer cannot release the reward.",
       };
     }
 
@@ -471,25 +467,30 @@ export const verifyTask = action({
 });
 
 /** Creates a completion row for a verification action that has no prior submit. */
+export async function createCompletionForTask(
+  ctx: MutationCtx,
+  args: { taskId: Id<"tasks">; userId: Id<"users"> },
+) {
+  const task = await ctx.db.get(args.taskId);
+  if (!task) throw new Error("Task not found.");
+  const existing = await ctx.db
+    .query("taskCompletions")
+    .withIndex("by_user_task", (q) =>
+      q.eq("userId", args.userId).eq("taskId", args.taskId),
+    )
+    .first();
+  if (existing) return existing._id;
+  return await ctx.db.insert("taskCompletions", {
+    userId: args.userId,
+    taskId: args.taskId,
+    status: "pending",
+    startedAt: Date.now(),
+    rewardNex: task.rewardNex,
+    speedBonusNexPerHour: task.speedBonusNexPerHour,
+  });
+}
+
 export const createCompletion = internalMutation({
   args: { taskId: v.id("tasks"), userId: v.id("users") },
-  handler: async (ctx, args) => {
-    const task = await ctx.db.get(args.taskId);
-    if (!task) throw new Error("Task not found.");
-    const existing = await ctx.db
-      .query("taskCompletions")
-      .withIndex("by_user_task", (q) =>
-        q.eq("userId", args.userId).eq("taskId", args.taskId),
-      )
-      .first();
-    if (existing) return existing._id;
-    return await ctx.db.insert("taskCompletions", {
-      userId: args.userId,
-      taskId: args.taskId,
-      status: "pending",
-      startedAt: Date.now(),
-      rewardNex: task.rewardNex,
-      speedBonusNexPerHour: task.speedBonusNexPerHour,
-    });
-  },
+  handler: async (ctx, args) => await createCompletionForTask(ctx, args),
 });
