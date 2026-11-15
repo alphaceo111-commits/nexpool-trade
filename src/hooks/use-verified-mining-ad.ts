@@ -40,10 +40,7 @@ export function useVerifiedMiningAd(extensionHours: number) {
     setBusy(purpose);
     try {
       const challenge = await requestMiningAd({ purpose });
-      const ad = await showVerifiedRewardedAd({
-        ymid: challenge.ymid,
-        requestVar: `mining_${purpose}`,
-      });
+      const ad = await showVerifiedRewardedAd({ ymid: challenge.ymid });
       if (!ad.ok) {
         toast.error(ad.reason);
         return { status: "failed", message: ad.reason };

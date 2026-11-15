@@ -41,10 +41,7 @@ export function useVerifiedTaskAd() {
         purpose: "task",
         taskId: taskId as Id<"tasks">,
       });
-      const ad = await showVerifiedRewardedAd({
-        ymid: challenge.ymid,
-        requestVar: "task_reward",
-      });
+      const ad = await showVerifiedRewardedAd({ ymid: challenge.ymid });
       if (!ad.ok) {
         toast.error(ad.reason);
         return { status: "failed", message: ad.reason };

@@ -1,20 +1,18 @@
 /**
  * Monetag rewarded ads (zone 12157822).
  *
- * The SDK is loaded from index.html, which defines `window.show_12157822`.
- * Rewarded-interstitial promises resolve after the ad is closed and Monetag
- * confirms the event. Mining only accepts `reward_event_type === "valued"`;
- * a click or an unfinished opening never gets that result.
+ * The official integration is the Rewarded Interstitial, `show_12157822()`.
+ * The only addition is the `ymid` sub-ID, which Monetag echoes back as the
+ * postback's `{ymid}` macro so one server challenge maps to one reward.
  *
- * The resolved SDK result never credits NEX directly. The Mining page sends it
- * to the backend, which owns the challenge, entitlement and balance.
+ * The SDK promise resolves once Monetag confirms the view, but the request
+ * still comes from the client, so it never credits NEX. The Mining page sends
+ * it to the backend as feedback only; a secret-authenticated postback is the
+ * sole proof of a valued view.
  */
 
 type MonetagShowOptions = {
-  type?: "end" | "start" | "pop" | "preload" | "inApp";
   ymid?: string;
-  requestVar?: string;
-  timeout?: number;
 };
 
 export type MonetagRewardEvent = {
@@ -75,7 +73,6 @@ async function waitForRuntime(): Promise<MonetagRuntime | null> {
  */
 export async function showVerifiedRewardedAd(options: {
   ymid: string;
-  requestVar: string;
 }): Promise<VerifiedRewardedAdResult> {
   if (typeof window === "undefined") {
     return {
@@ -97,11 +94,8 @@ export async function showVerifiedRewardedAd(options: {
   }
 
   try {
-    const result = await runtime({
-      type: "end",
-      ymid: options.ymid,
-      requestVar: options.requestVar,
-    });
+    // Rewarded Interstitial: `type` is omitted because `end` is the default.
+    const result = await runtime({ ymid: options.ymid });
     if (!result) {
       return {
         ok: false,
