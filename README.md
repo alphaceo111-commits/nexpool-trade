@@ -54,6 +54,17 @@ bunx convex env set --prod MONETAG_POSTBACK_SECRET <value>
 
 No progress can be granted without it — the button is disabled on purpose, not by a UI bug.
 
+### Provisioning the production secret
+
+This workspace holds only a deployment-scoped deploy key for the development deployment, so production must be configured with a production-scoped key:
+
+```bash
+export CONVEX_PROD_DEPLOY_KEY=...   # deploy key scoped to healthy-hound-245
+bash scripts/provision-monetag-production.sh
+```
+
+The script fails closed: it exits early if production is already configured, proves the key is authorized for that deployment (HTTP 200 from the deployment API) and that the CLI actually resolves to it, then writes the same value already on development through stdin. It finishes by requiring the public endpoint to answer 403. Neither the key nor the secret is ever printed. The real rewarded-ad check still needs a signed-in Telegram client.
+
 ## Telegram publishing
 
 The Operator Console has two publishing paths that share one delivery pipeline (`telegramPosts` + one `telegramDeliveries` row per destination):
