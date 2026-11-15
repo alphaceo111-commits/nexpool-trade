@@ -488,6 +488,9 @@ async function runDelivery(
     { chatIds: post.destinationIds },
   );
   const byChat = new Map(destinations.map((row) => [row.chatId, row]));
+  // Private messages go to Telegram chats that started the bot. They have no
+  // destination row, so the group/channel permission checks do not apply.
+  const isPrivate = post.kind === "private";
   for (const chatId of post.destinationIds) {
     const destination = byChat.get(chatId);
     const begin = await ctx.runMutation(
@@ -495,11 +498,11 @@ async function runDelivery(
       {
         postId,
         chatId,
-        destinationTitle: destination?.title ?? chatId,
+        destinationTitle: destination?.title ?? `DM ${chatId}`,
       },
     );
     if (begin.skip) continue;
-    if (!destination) {
+    if (!isPrivate && !destination) {
       await ctx.runMutation(internal.telegramControl.finishDelivery, {
         deliveryId: begin.deliveryId,
         status: "failed",
@@ -507,7 +510,7 @@ async function runDelivery(
       });
       continue;
     }
-    if (!destination.permissions.canPostMessages) {
+    if (!isPrivate && destination && !destination.permissions.canPostMessages) {
       await ctx.runMutation(internal.telegramControl.finishDelivery, {
         deliveryId: begin.deliveryId,
         status: "failed",
@@ -616,6 +619,11 @@ export const createPost = internalMutation({
     scheduledAt: v.optional(v.number()),
     idempotencyKey: v.string(),
     createdBy: v.string(),
+    kind: v.optional(
+      v.union(v.literal("broadcast"), v.literal("private")),
+    ),
+    templateKey: v.optional(v.string()),
+    automationId: v.optional(v.id("telegramAutomations")),
   },
   handler: async (ctx, args): Promise<Id<"telegramPosts">> => {
     const existing = await ctx.db
@@ -637,6 +645,9 @@ export const createPost = internalMutation({
       createdBy: args.createdBy,
       createdAt: now,
       updatedAt: now,
+      kind: args.kind,
+      templateKey: args.templateKey,
+      automationId: args.automationId,
     });
   },
 });

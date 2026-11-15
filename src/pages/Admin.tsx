@@ -304,14 +304,18 @@ function Overview({ onTab }: { onTab: (tab: TabKey) => void }) {
             good: service.telegramBotConfigured,
           },
           {
-            label: "Task ad verifier",
-            value: service.adProviderConfigured ? "Connected" : "Not configured",
-            good: service.adProviderConfigured,
+            // Both mining unlocks and rewarded-ad tasks settle through the same
+            // Monetag postback, so this one flag is the real verifier health.
+            label: "Ad verifier (mining + tasks)",
+            value: service.rewardedAdProviderConfigured
+              ? "Postback secret set"
+              : "Secret missing",
+            good: service.rewardedAdProviderConfigured,
           },
           {
-            label: "Rewarded ad verifier",
-            value: "Monetag SDK",
-            good: service.rewardedAdProviderConfigured,
+            label: "Monetag SDK",
+            value: "Client-side only",
+            good: true,
           },
         ].map((item) => (
           <div
@@ -331,6 +335,39 @@ function Overview({ onTab }: { onTab: (tab: TabKey) => void }) {
           </div>
         ))}
       </div>
+
+      {!service.rewardedAdProviderConfigured ? (
+        <div className="flex items-start gap-2.5 rounded-md border border-warn/40 bg-warn/[0.05] px-3 py-2.5">
+          <ShieldAlert className="mt-0.5 size-4 shrink-0 text-warn" />
+          <div className="min-w-0">
+            <p className="text-[11.5px] font-medium text-warn">
+              Verified ads fail closed on this deployment
+            </p>
+            <p className="mt-1 text-[10.5px] leading-relaxed text-muted-foreground">
+              The Monetag SDK is loaded, but the backend cannot authenticate a
+              reward postback because{" "}
+              <code className="font-mono text-[10px] text-foreground">
+                MONETAG_POSTBACK_SECRET
+              </code>{" "}
+              is not set on the Convex deployment serving this app. Every Watch
+              Ad button stays disabled until it is. Set it with{" "}
+              <code className="font-mono text-[10px] text-foreground">
+                bunx convex env set MONETAG_POSTBACK_SECRET &lt;value&gt;
+              </code>{" "}
+              (add{" "}
+              <code className="font-mono text-[10px] text-foreground">
+                --prod
+              </code>{" "}
+              for production), then use the same value in the Monetag postback
+              URL. Never put it in a{" "}
+              <code className="font-mono text-[10px] text-foreground">
+                VITE_*
+              </code>{" "}
+              variable.
+            </p>
+          </div>
+        </div>
+      ) : null}
 
       <div className="grid gap-3 lg:grid-cols-12">
         <Panel

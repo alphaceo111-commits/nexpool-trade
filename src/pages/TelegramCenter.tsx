@@ -16,11 +16,13 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import {
   ArrowLeft,
   Bot,
+  CalendarClock,
   CheckCircle2,
   Clock,
   Hash,
   Link2,
   Megaphone,
+  Play,
   Plus,
   RefreshCw,
   Send,
@@ -59,6 +61,7 @@ const TABS = [
   { key: "commands", label: "Commands", icon: Hash },
   { key: "destinations", label: "Groups & channels", icon: Users },
   { key: "composer", label: "Composer", icon: Megaphone },
+  { key: "automations", label: "Automations", icon: CalendarClock },
   { key: "reports", label: "Publishing reports", icon: Send },
 ] as const;
 
@@ -759,6 +762,12 @@ export default function TelegramCenter() {
               </Panel>
             </div>
           ) : null}
+          {tab === "automations" ? (
+            <AutomationsTab
+              destinations={overview.destinations}
+              posts={overview.posts}
+            />
+          ) : null}
           {tab === "reports" ? (
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -977,6 +986,543 @@ function PostReport({ post, deliveries }: { post: Post; deliveries: Delivery[] }
         ))}
       </div>
     </Panel>
+  );
+}
+
+const WEEKDAYS = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+] as const;
+
+/**
+ * Automated publishing: every post is rendered from confirmed backend data by
+ * a code-defined template. The operator controls the destination, the UTC slot
+ * and whether the run is published immediately or held as a draft.
+ */
+function AutomationsTab({
+  destinations,
+  posts,
+}: {
+  destinations: Destination[];
+  posts: Post[];
+}) {
+  const catalog = useQuery(api.publishing.templates);
+  const automations = useQuery(api.publishing.listAutomations);
+  const segments = useQuery(api.publishing.segmentCounts);
+  const upsert = useMutation(api.publishing.upsertAutomation);
+  const removeAutomation = useMutation(api.publishing.deleteAutomation);
+  const runNow = useAction(api.publishing.runNow);
+  const sendSegment = useAction(api.publishing.sendSegment);
+  const approvePost = useAction(api.publishing.approvePost);
+
+  const [templateKey, setTemplateKey] = useState("");
+  const [frequency, setFrequency] = useState<"daily" | "weekly" | "monthly">(
+    "daily",
+  );
+  const [hourUtc, setHourUtc] = useState(9);
+  const [minuteUtc, setMinuteUtc] = useState(0);
+  const [weekday, setWeekday] = useState(1);
+  const [dayOfMonth, setDayOfMonth] = useState(1);
+  const [requireApproval, setRequireApproval] = useState(false);
+  const [targets, setTargets] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [busyRow, setBusyRow] = useState<string | null>(null);
+
+  const [segment, setSegment] = useState("all_linked");
+  const [limit, setLimit] = useState(100);
+  const [sending, setSending] = useState(false);
+
+  const preview = useQuery(
+    api.publishing.preview,
+    templateKey ? { templateKey } : "skip",
+  );
+  const selected = catalog?.templates.find((row) => row.key === templateKey);
+
+  const chooseTemplate = (key: string) => {
+    setTemplateKey(key);
+    const found = catalog?.templates.find((row) => row.key === key);
+    if (!found) return;
+    setFrequency(found.frequency);
+    setHourUtc(found.hourUtc);
+    setMinuteUtc(found.minuteUtc);
+  };
+
+  const toggleTarget = (chatId: string) =>
+    setTargets((current) =>
+      current.includes(chatId)
+        ? current.filter((id) => id !== chatId)
+        : [...current, chatId],
+    );
+
+  const save = async () => {
+    if (!selected) return;
+    if (targets.length === 0) {
+      toast.error("Select at least one destination.");
+      return;
+    }
+    setSaving(true);
+    try {
+      await upsert({
+        templateKey: selected.key,
+        enabled: true,
+        destinationIds: targets,
+        frequency,
+        hourUtc,
+        minuteUtc,
+        weekday: frequency === "weekly" ? weekday : undefined,
+        dayOfMonth: frequency === "monthly" ? dayOfMonth : undefined,
+        requireApproval,
+      });
+      toast.success(`${selected.label} scheduled.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not schedule.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const toggleEnabled = async (row: NonNullable<typeof automations>[number]) => {
+    setBusyRow(row.id);
+    try {
+      await upsert({
+        id: row.id,
+        templateKey: row.templateKey,
+        enabled: !row.enabled,
+        destinationIds: row.destinationIds,
+        frequency: row.frequency,
+        hourUtc: row.hourUtc,
+        minuteUtc: row.minuteUtc,
+        weekday: row.weekday ?? undefined,
+        dayOfMonth: row.dayOfMonth ?? undefined,
+        requireApproval: row.requireApproval,
+      });
+      toast.success(row.enabled ? "Schedule paused." : "Schedule resumed.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Update failed.");
+    } finally {
+      setBusyRow(null);
+    }
+  };
+
+  const run = async (id: NonNullable<typeof automations>[number]["id"]) => {
+    setBusyRow(id);
+    try {
+      const result = (await runNow({ id })) as { status: string };
+      if (result.status === "queued") {
+        toast.success("Post queued for every destination.");
+      } else if (result.status === "no-data") {
+        toast.info("This template has no confirmed data to publish yet.");
+      } else {
+        toast.info("Nothing was published.");
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Run failed.");
+    } finally {
+      setBusyRow(null);
+    }
+  };
+
+  const sendToSegment = async () => {
+    if (
+      !window.confirm(
+        `Send a private bot message to the "${segment}" segment (up to ${limit} accounts)?\n\nTelegram only delivers to accounts that started the bot. Every unavailable chat is recorded as a failed delivery.`,
+      )
+    ) {
+      return;
+    }
+    setSending(true);
+    try {
+      const result = (await sendSegment({ segment, limit })) as { queued: number };
+      toast.success(`${result.queued} private messages queued.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Segment send failed.");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const drafts = posts.filter((post) => post.status === "draft");
+
+  const approve = async (postId: Post["_id"]) => {
+    setBusyRow(postId);
+    try {
+      await approvePost({ postId });
+      toast.success("Draft approved and queued for delivery.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Approval failed.");
+    } finally {
+      setBusyRow(null);
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      {drafts.length > 0 ? (
+        <Panel
+          eyebrow="Needs approval"
+          title={`${drafts.length} draft${drafts.length === 1 ? "" : "s"} waiting`}
+          action={<StatusPill tone="warn">held</StatusPill>}
+          bodyClassName="space-y-2"
+        >
+          {drafts.map((post) => (
+            <div
+              key={post._id}
+              className="border border-warn/40 bg-warn/[0.04] p-2.5"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate text-[11.5px] font-medium">
+                    {post.title}
+                  </p>
+                  <p className="font-mono text-[9px] text-muted-foreground">
+                    {post.templateKey ?? "manual"} ·{" "}
+                    {post.destinationIds.length} destinations · created{" "}
+                    {formatDateTime(post.createdAt)}
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  className="gap-1 font-mono text-[9px] uppercase"
+                  disabled={busyRow === post._id}
+                  onClick={() => void approve(post._id)}
+                >
+                  {busyRow === post._id ? <Spinner /> : <Send className="size-3" />}
+                  Approve
+                </Button>
+              </div>
+              <p className="mt-1 line-clamp-3 whitespace-pre-wrap font-mono text-[10px] leading-relaxed text-muted-foreground">
+                {post.text}
+              </p>
+            </div>
+          ))}
+        </Panel>
+      ) : null}
+
+      <div className="grid gap-3 lg:grid-cols-12">
+        <Panel
+          className="lg:col-span-7"
+          eyebrow="Automated post engine"
+          title={`${automations?.length ?? 0} recurring schedules`}
+          bodyClassName="space-y-2"
+        >
+          {!automations || automations.length === 0 ? (
+            <EmptyState
+              icon={<CalendarClock className="size-4" />}
+              title="No automated posts yet"
+              body="Schedule a template on the right. Every post is generated from confirmed mining, task, referral and payout records — never from placeholder numbers."
+            />
+          ) : (
+            automations.map((row) => (
+              <div
+                key={row.id}
+                className="border border-border/70 bg-panel/40 p-2.5"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-[11.5px] font-medium">
+                      {row.label}
+                    </p>
+                    <p className="mt-0.5 font-mono text-[9px] uppercase tracking-[0.06em] text-muted-foreground">
+                      {row.frequency}
+                      {row.frequency === "weekly" && row.weekday !== null
+                        ? ` · ${WEEKDAYS[row.weekday]}`
+                        : ""}
+                      {row.frequency === "monthly" && row.dayOfMonth !== null
+                        ? ` · day ${row.dayOfMonth}`
+                        : ""}
+                      {" · "}
+                      {String(row.hourUtc).padStart(2, "0")}:
+                      {String(row.minuteUtc).padStart(2, "0")} UTC ·{" "}
+                      {row.destinationIds.length} destination
+                      {row.destinationIds.length === 1 ? "" : "s"}
+                      {row.requireApproval ? " · draft mode" : ""}
+                    </p>
+                    <p className="font-mono text-[9px] text-muted-foreground">
+                      next {formatDateTime(row.nextRunAt)}
+                      {row.lastRunAt
+                        ? ` · last ${formatDateTime(row.lastRunAt)}`
+                        : ""}
+                    </p>
+                    {row.lastError ? (
+                      <p className="mt-1 text-[10px] text-warn">{row.lastError}</p>
+                    ) : null}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <StatusPill tone={row.enabled ? "up" : "muted"}>
+                      {row.enabled ? "enabled" : "paused"}
+                    </StatusPill>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 gap-1 px-1.5 font-mono text-[8px] uppercase"
+                      disabled={busyRow === row.id}
+                      onClick={() => void toggleEnabled(row)}
+                    >
+                      {row.enabled ? "Pause" : "Resume"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 gap-1 px-1.5 font-mono text-[8px] uppercase text-primary"
+                      disabled={busyRow === row.id}
+                      onClick={() => void run(row.id)}
+                    >
+                      <Play className="size-3" /> Run
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 gap-1 px-1.5 font-mono text-[8px] uppercase text-down"
+                      disabled={busyRow === row.id}
+                      onClick={() => void removeAutomation({ id: row.id })}
+                    >
+                      <Trash2 className="size-3" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+          <p className="text-[10px] leading-relaxed text-muted-foreground">
+            A run is idempotent per scheduled slot, so overlapping cron ticks
+            cannot double-post. If a template has no confirmed data, it skips the
+            slot instead of inventing numbers.
+          </p>
+        </Panel>
+
+        <Panel
+          className="lg:col-span-5"
+          eyebrow="New schedule"
+          title={selected ? selected.label : "Pick a template"}
+          bodyClassName="space-y-3"
+        >
+          <Field label="Template">
+            <select
+              value={templateKey}
+              onChange={(event) => chooseTemplate(event.target.value)}
+              className="h-9 w-full rounded-sm border border-input bg-transparent px-2 text-[11px] outline-none focus-visible:border-ring"
+            >
+              <option value="">Select a template…</option>
+              {(catalog?.categories ?? []).map((category) => (
+                <optgroup key={category.key} label={category.label}>
+                  {(catalog?.templates ?? [])
+                    .filter((row) => row.category === category.key)
+                    .map((row) => (
+                      <option key={row.key} value={row.key}>
+                        {row.label}
+                      </option>
+                    ))}
+                </optgroup>
+              ))}
+            </select>
+          </Field>
+
+          {selected ? (
+            <p className="text-[10px] leading-relaxed text-muted-foreground">
+              {selected.description}
+            </p>
+          ) : null}
+
+          <div className="grid grid-cols-3 gap-2">
+            <Field label="Frequency">
+              <select
+                value={frequency}
+                onChange={(event) =>
+                  setFrequency(event.target.value as "daily" | "weekly" | "monthly")
+                }
+                className="h-9 w-full rounded-sm border border-input bg-transparent px-2 text-[11px] outline-none focus-visible:border-ring"
+              >
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+              </select>
+            </Field>
+            <Field label="Hour (UTC)">
+              <Input
+                type="number"
+                min={0}
+                max={23}
+                value={hourUtc}
+                onChange={(event) => setHourUtc(Number(event.target.value))}
+                className="num text-[11px]"
+              />
+            </Field>
+            <Field label="Minute">
+              <Input
+                type="number"
+                min={0}
+                max={59}
+                value={minuteUtc}
+                onChange={(event) => setMinuteUtc(Number(event.target.value))}
+                className="num text-[11px]"
+              />
+            </Field>
+          </div>
+
+          {frequency === "weekly" ? (
+            <Field label="Weekday">
+              <select
+                value={weekday}
+                onChange={(event) => setWeekday(Number(event.target.value))}
+                className="h-9 w-full rounded-sm border border-input bg-transparent px-2 text-[11px] outline-none focus-visible:border-ring"
+              >
+                {WEEKDAYS.map((label, index) => (
+                  <option key={label} value={index}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          ) : null}
+
+          {frequency === "monthly" ? (
+            <Field label="Day of month (1–28)">
+              <Input
+                type="number"
+                min={1}
+                max={28}
+                value={dayOfMonth}
+                onChange={(event) => setDayOfMonth(Number(event.target.value))}
+                className="num text-[11px]"
+              />
+            </Field>
+          ) : null}
+
+          <label className="flex items-start gap-2 border border-border/70 p-2 text-[10px] leading-relaxed text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={requireApproval}
+              onChange={(event) => setRequireApproval(event.target.checked)}
+              className="mt-0.5 size-3.5 accent-primary"
+            />
+            <span>
+              Hold each run as a draft. The post is recorded but nothing is sent
+              until you review it.
+            </span>
+          </label>
+
+          <div>
+            <p className="label-xs mb-1.5">Destinations</p>
+            {destinations.length === 0 ? (
+              <p className="text-[11px] text-muted-foreground">
+                No groups or channels connected yet.
+              </p>
+            ) : (
+              <div className="space-y-1.5">
+                {destinations.map((destination) => {
+                  const checked = targets.includes(destination.chatId);
+                  const canPost = destination.permissions.canPostMessages;
+                  return (
+                    <button
+                      key={destination.chatId}
+                      type="button"
+                      disabled={!canPost}
+                      onClick={() => toggleTarget(destination.chatId)}
+                      className={cn(
+                        "flex w-full items-center gap-2 border p-2 text-left transition-colors",
+                        checked
+                          ? "border-primary/50 bg-primary/10"
+                          : "border-border/70 bg-panel/40 hover:bg-secondary/40",
+                        !canPost && "cursor-not-allowed opacity-50",
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "flex size-4 shrink-0 items-center justify-center border",
+                          checked
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-border",
+                        )}
+                      >
+                        {checked ? <CheckCircle2 className="size-3" /> : null}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-[11px]">
+                        {destination.title}
+                      </span>
+                      <span className="font-mono text-[8.5px] uppercase text-muted-foreground">
+                        {destination.type}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {preview ? (
+            <div className="border border-border/70 bg-background/60 p-2.5">
+              <p className="label-xs">Live preview</p>
+              <p className="mt-1 whitespace-pre-wrap font-mono text-[10px] leading-relaxed text-muted-foreground">
+                {preview.available
+                  ? preview.text
+                  : "This template has no confirmed data yet. It will skip the slot rather than publish empty numbers."}
+              </p>
+            </div>
+          ) : null}
+
+          <Button
+            onClick={() => void save()}
+            disabled={saving || !selected || targets.length === 0}
+            className="w-full gap-1.5 font-mono text-[10px] uppercase tracking-[0.1em]"
+          >
+            {saving ? <Spinner /> : <CalendarClock className="size-3.5" />}
+            Schedule template
+          </Button>
+        </Panel>
+      </div>
+
+      <Panel
+        eyebrow="Private bot messages"
+        title="Targeted segments"
+        bodyClassName="space-y-3"
+      >
+        <div className="grid gap-2 sm:grid-cols-3">
+          <Field label="Segment">
+            <select
+              value={segment}
+              onChange={(event) => setSegment(event.target.value)}
+              className="h-9 w-full rounded-sm border border-input bg-transparent px-2 text-[11px] outline-none focus-visible:border-ring"
+            >
+              {(segments?.segments ?? []).map((row) => (
+                <option key={row.key} value={row.key}>
+                  {row.label} · {segments?.counts[row.key] ?? 0}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Recipient cap">
+            <Input
+              type="number"
+              min={1}
+              max={500}
+              value={limit}
+              onChange={(event) => setLimit(Number(event.target.value))}
+              className="num text-[11px]"
+            />
+          </Field>
+          <div className="flex items-end">
+            <Button
+              onClick={() => void sendToSegment()}
+              disabled={sending}
+              className="w-full gap-1.5 font-mono text-[10px] uppercase tracking-[0.1em]"
+            >
+              {sending ? <Spinner /> : <Send className="size-3.5" />}
+              Send to segment
+            </Button>
+          </div>
+        </div>
+        <p className="text-[10px] leading-relaxed text-muted-foreground">
+          A bot can only message accounts that started it. Every recipient is
+          recorded as its own delivery, so an unreachable chat shows up as failed
+          instead of silently disappearing.
+        </p>
+      </Panel>
+    </div>
   );
 }
 

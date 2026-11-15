@@ -25,8 +25,8 @@ import {
 
 /**
  * Owns both automatic mining popups. Presentation claims are server-backed so
- * a refresh or a second device cannot replay them; the manual open path never
- * claims and never changes ad progress or entitlements.
+ * a refresh or a second device cannot replay a claim; the manual open path
+ * never claims and never changes ad progress or entitlements.
  */
 export function MiningPopupsProvider({ children }: { children: ReactNode }) {
   const snapshot = useQuery(api.app.snapshot);
@@ -117,13 +117,20 @@ export function MiningPopupsProvider({ children }: { children: ReactNode }) {
   const extensionEligible = Boolean(mining?.ads.extension.eligible);
   const providerReady = Boolean(mining?.ads.providerReady);
   const remaining = mining?.remainingTodayNex ?? 0;
+  const minedToday = mining?.todayMinedNex ?? 0;
   const extensionHours = snapshot?.config.extensionHours ?? 5;
   const adRewardNex = snapshot?.config.adRewardNex ?? 0;
   const shownCompleted =
     active || (isExtension && extensionStartable) ? required : completed;
+
+  // A watch CTA is enabled only when the backend says the provider callback is
+  // configured *and* this specific unlock is still actionable. Starting the
+  // extra session is a separate, locally gated action.
+  const extensionWatchable =
+    providerReady && extensionEligible && !unlockedToday && !active;
   const ctaDisabled = isExtension
-    ? startingExtra || active || (!extensionStartable && (!providerReady || !extensionEligible || unlockedToday))
-    : Boolean(busy) || active || (!providerReady);
+    ? startingExtra || Boolean(busy) || (!extensionStartable && !extensionWatchable)
+    : Boolean(busy) || active || !providerReady;
 
   const title = isExtension
     ? extensionStartable
@@ -137,7 +144,7 @@ export function MiningPopupsProvider({ children }: { children: ReactNode }) {
     : "Keep mining in the background!";
   const body = isExtension
     ? extensionStartable
-      ? `The verified-ad requirement is complete. The five-hour clock has not started and no extra NEX is accruing until you press Start Extra Mining.`
+      ? "The verified-ad requirement is complete. The five-hour clock has not started and no extra NEX is accruing until you press Start Extra Mining."
       : `You've reached your normal daily mining limit. Watch ${required} verified advertisements to unlock an additional ${extensionHours} hours of mining and earn extra NEX beyond your normal daily cap.`
     : `Your normal mining pauses when you leave NEXPOOL. Watch ${required} verified advertisements to unlock background mining.`;
 
@@ -160,25 +167,25 @@ export function MiningPopupsProvider({ children }: { children: ReactNode }) {
       "Verified ads are unavailable until Monetag's server confirmation callback is configured. No progress can be granted manually.";
   } else if (isExtension && remaining > 0) {
     statusNote = `Reach the normal daily cap first — ${formatNex(remaining)} NEX remaining.`;
-  } else if (mineToday === 0) {
-    statusNote = "Start normal mining first.";
+  } else if (isExtension && unlockedToday) {
+    statusNote =
+      "The extension was already granted today. The next one requires a new normal daily cap.";
+  } else if (!isExtension && minedToday === 0 && !sessionActive) {
+    statusNote = "Start normal mining first — this unlock only extends a running session.";
   }
 
-  let ctaLabel = isExtension
-    ? `Unlock ${extensionHours} Hours`
-    : `Watch verified ad · ${Math.min(completed + 1, required)}/${required}`;
+  let ctaLabel = `Watch verified ad · ${Math.min(completed + 1, required)}/${required}`;
   if (startingExtra) ctaLabel = "Starting extra mining";
   else if (busy) ctaLabel = "Waiting for provider confirmation";
   else if (active) {
     ctaLabel = isExtension
       ? `${extensionHours}-hour extension active`
       : "Background mining active";
-  } else if (isExtension && extensionStartable)
-    ctaLabel = "Start Extra Mining";
+  } else if (isExtension && extensionStartable) ctaLabel = "Start Extra Mining";
   else if (isExtension && extensionExpired) ctaLabel = "Session completed today";
   else if (isExtension && unlockedToday) ctaLabel = "Unlocked today";
   else if (!providerReady) ctaLabel = "Verification unavailable";
-  else if (remaining > 0) ctaLabel = "Reach the daily cap first";
+  else if (isExtension && remaining > 0) ctaLabel = "Reach the daily cap first";
 
   const Icon = isExtension ? Megaphone : Plane;
   const contextValue = useMemo(() => ({ openMiningPopup }), [openMiningPopup]);
@@ -186,6 +193,7 @@ export function MiningPopupsProvider({ children }: { children: ReactNode }) {
   const runPrimaryAction = async () => {
     if (!open || ctaDisabled) return;
     setNotice(null);
+
     if (isExtension && extensionStartable) {
       setStartingExtra(true);
       try {
@@ -209,30 +217,29 @@ export function MiningPopupsProvider({ children }: { children: ReactNode }) {
             ? error.message
             : "Extra mining could not start.",
         );
-      } else if (!providerReady) {
-        setNotice(
-          "Verified ads are unavailable until Monetag's server confirmation callback is configured. No progress can be granted manually.",
-        );
-      } else if (isExtension && remaining > 0) {
-        setNotice(
-          `Reach the normal daily cap first — ${formatNex(remaining)} NEX remaining.`,
-        );
-      } else {
-        const result = await watchAd(open);
-        setNotice(result.message);
+      } finally {
+        setStartingExtra(false);
       }
-  };
+      return;
+    }
 
-  const Icon = isExtension ? Megaphone : Plane;
-  const contextValue = useMemo(() => ({ openMiningPopup }), [openMiningPopup]);
-      } else {
-        const result = await watchAd(open);
-        setNotice(result.message);
-      }
-  };
+    if (!providerReady) {
+      setNotice(
+        "Monetag server verification is not configured, so this unlock is unavailable. Opening or clicking an ad cannot grant progress.",
+      );
+      return;
+    }
 
-  const Icon = isExtension ? Megaphone : Plane;
-  const contextValue = useMemo(() => ({ openMiningPopup }), [openMiningPopup]);
+    if (isExtension && remaining > 0) {
+      setNotice(
+        `Reach the normal daily cap first — ${formatNex(remaining)} NEX remaining.`,
+      );
+      return;
+    }
+
+    const result = await watchAd(open);
+    setNotice(result.message);
+  };
 
   return (
     <MiningPopupsContext.Provider value={contextValue}>
@@ -304,196 +311,11 @@ export function MiningPopupsProvider({ children }: { children: ReactNode }) {
                   </p>
                 ) : null}
 
-              } else {
-              const result = await watchAd(open);
-              setNotice(result.message);
-            }
-
-  const Icon = isExtension ? Megaphone : Plane;
-  const contextValue = useMemo(() => ({ openMiningPopup }), [openMiningPopup]);
-
-  return (
-    <MiningPopupsContext.Provider value={contextValue}>
-      {children}
-      <Dialog
-        open={Boolean(open)}
-        onOpenChange={(next) => {
-          if (!next) {
-            setOpen(null);
-            setNotice(null);
-          }
-        }}
-      >
-        <DialogContent className="max-h-[92dvh] gap-0 overflow-y-auto border-border/80 bg-card p-0 sm:max-w-[440px]">
-          {open && snapshot ? (
-            } else {
-              const result = await watchAd(open);
-              setNotice(result.message);
-            }
-          };
-
-          const Icon = isExtension ? Megaphone : Plane;
-          const contextValue = useMemo(() => ({ openMiningPopup }), [openMiningPopup]);
-
-          return (
-            <MiningPopupsContext.Provider value={contextValue}>
-              {children}
-              <Dialog
-                open={Boolean(open)}
-                onOpenChange={(next) => {
-                  if (!next) {
-                    setOpen(null);
-                    setNotice(null);
-                  }
-                }}
-              >
-                <DialogContent className="max-h-[92dvh] gap-0 overflow-y-auto border-border/80 bg-card p-0 sm:max-w-[440px]">
-                  {open && snapshot ? (
-                    <>
-                      <div className="relative overflow-hidden border-b border-border/70 px-5 pt-6 pb-5">
-                        <div
-                          className="pointer-events-none absolute -top-16 -right-10 size-44 rounded-full bg-primary/15 blur-3xl"
-                          aria-hidden="true"
-                        />
-                        <div className="relative">
-                          <p className="label-xs flex items-center gap-1.5">
-                            <Icon className="size-3 text-primary" />
-                            {isExtension ? "Cap extension" : "Background mining"}
-                          </p>
-                          <DialogTitle className="mt-2 font-mono text-[21px] font-bold tracking-[0.14em] text-primary">
-                            {title}
-                          </DialogTitle>
-                          <h3 className="mt-3 text-[17px] font-semibold tracking-tight">
-                            {heading}
-                          </h3>
-                          <DialogDescription className="mt-1.5 text-[12px] leading-relaxed">
-                            {body}
-                          </DialogDescription>
-                        </div>
-                      </div>
-
-                      <div className="space-y-3.5 px-5 py-4">
-                        <div className="rounded-sm border border-border/70 bg-background/50 p-3">
-                          <div className="flex items-end justify-between gap-3">
-                            <div>
-                              <p className="num text-[30px] leading-none font-semibold text-foreground">
-                                {shownCompleted}
-                                <span className="ml-1 text-[15px] text-muted-foreground">
-                                  / {required}
-                                </span>
-                              </p>
-                              <p className="label-xs mt-2">Verified ads completed</p>
-                            </div>
-                            <span className="flex size-9 items-center justify-center rounded-sm border border-primary/30 bg-primary/10 text-primary">
-                              {active ? <BadgeCheck className="size-4" /> : <Timer className="size-4" />}
-                            </span>
-                          </div>
-                          <ProgressBar
-                            value={shownCompleted}
-                            max={required}
-                            tone={active ? "up" : "signal"}
-                            className="mt-3"
-                          />
-                          <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground">
-                            {statusNote}
-                          </p>
-                        </div>
-
-                        {notice ? (
-                          <p className="rounded-sm border border-primary/30 bg-primary/[0.05] px-2.5 py-2 text-[10.5px] leading-relaxed text-muted-foreground">
-                            {notice}
-                          </p>
-                        ) : null}
-
-                        } else {
-                          const result = await watchAd(open);
-                          setNotice(result.message);
-                        }
-                      };
-
-                      const Icon = isExtension ? Megaphone : Plane;
-                      const contextValue = useMemo(...) => ({ openMiningPopup }), [openMiningPopup]);
-
-                      return (
-                        <MiningPopupsContext.Provider value={contextValue}>
-                          {children}
-                          <Dialog
-                            open={Boolean(open)}
-                            onOpenChange={(next) => {
-                              if (!next) {
-                                setOpen(null);
-                                setNotice(null);
-                              }
-                            }}
-                          >
-                            <DialogContent className="max-h-[92dvh] gap-0 overflow-y-auto border-border/80 bg-card p-0 sm:max-w-[440px]">
-                              {open && snapshot ? (
-                                <>
-                                  <div className="relative overflow-hidden border-b border-border/70 px-5 pt-6 pb-5">
-                                    <div
-                                      className="pointer-events-none absolute -top-16 -right-10 size-44 rounded-full bg-primary/15 blur-3xl"
-                                      aria-hidden="true"
-                                    />
-                                    <div className="relative">
-                                      <p className="label-xs flex items-center gap-1.5">
-                                        <Icon className="size-3 text-primary" />
-                                        {isExtension ? "Cap extension" : "Background mining"}
-                                      </p>
-                                      <DialogTitle className="mt-2 font-mono text-[21px] font-bold tracking-[0.14em] text-primary">
-                                        {title}
-                                      </DialogTitle>
-                                      <h3 className="mt-3 text-[17px] font-semibold tracking-tight">
-                                        {heading}
-                                      </h3>
-                                      <DialogDescription className="mt-1.5 text-[12px] leading-relaxed">
-                                        {body}
-                                      </DialogDescription>
-                                    </div>
-                                  </div>
-
-                                  <div className="space-y-3.5 px-5 py-4">
-                                    <div className="rounded-sm border border-border/70 bg-background/50 p-3">
-                                      <div className="flex items-end justify-between gap-3">
-                                        <div>
-                                          <p className="num text-[30px] leading-none font-semibold text-foreground">
-                                            {shownCompleted}
-                                            <span className="ml-1 text-[15px] text-muted-foreground">
-                                              / {required}
-                                            </span>
-                                          </p>
-                                          <p className="label-xs mt-2">Verified ads completed</p>
-                                        </div>
-                                        <span className="flex size-9 items-center justify-center rounded-sm border border-primary/30 bg-primary/10 text-primary">
-                                          {active ? <BadgeCheck className="size-4" /> : <Timer className="size-4" />}
-                                        </span>
-                                      </div>
-                                      <ProgressBar
-                                        value={shownCompleted}
-                                        max={required}
-                                        tone={active ? "up" : "signal"}
-                                        className="mt-3"
-                                      />
-                                      <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground">
-                                        {statusNote}
-                                      </p>
-                                    </div>
-
-                                    {notice ? (
-                                      <p className="rounded-sm border border-primary/30 bg-primary/[0.05] px-2.5 py-2 text-[10.5px] leading-relaxed text-muted-foreground">
-                                        {notice}
-                                      </p>
-                                    ) : null}
-
-                                                      } else {
-                  };
-
                 <Button
                   onClick={() => void runPrimaryAction()}
                   disabled={ctaDisabled}
                   className="w-full gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em]"
                 >
-
-
                   {busy || startingExtra ? <Spinner /> : <Play className="size-3.5" />}
                   {ctaLabel}
                 </Button>

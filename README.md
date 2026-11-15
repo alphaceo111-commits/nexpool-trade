@@ -45,6 +45,33 @@ Run the postback contract tests with `bun run test`.
 
 Set it from the project Keys/API keys panel or with `bunx convex env set MONETAG_POSTBACK_SECRET <value>` on the intended deployment. Never set production secrets from the client bundle.
 
+If the Mining page shows "Verification unavailable" and the Watch Ad button is disabled, the SDK is loaded but `MONETAG_POSTBACK_SECRET` is not present on the Convex deployment that serves the app. The Operator Console warns about this and reports the real cause. Set the variable on that deployment (add `--prod` for production) and use the identical value in the Monetag postback URL:
+
+```bash
+bunx convex env set MONETAG_POSTBACK_SECRET <value>
+bunx convex env set --prod MONETAG_POSTBACK_SECRET <value>
+```
+
+No progress can be granted without it — the button is disabled on purpose, not by a UI bug.
+
+## Telegram publishing
+
+The Operator Console has two publishing paths that share one delivery pipeline (`telegramPosts` + one `telegramDeliveries` row per destination):
+
+- **Composer** — the operator writes and publishes or schedules a post.
+- **Automations** — recurring posts generated from confirmed backend records by the templates in `src/convex/publishing.ts`.
+
+Automated posts are code-defined so the copy is reviewable and versioned. `telegramAutomations` stores only configuration and scheduler state: template, destinations, UTC slot, draft mode and the next run. A cron tick every 5 minutes runs due slots through `internal.publishing.runDueAutomations`.
+
+Guarantees that the tests in `src/convex/publishing.test.ts` pin down:
+
+- Every number comes from a confirmed backend record; a template with no data says so instead of inventing ranks.
+- The post idempotency key includes the scheduled slot, so a retried or overlapping tick cannot publish the same slot twice.
+- Disabled automations publish nothing.
+- Delivery state is recorded per chat, so a partial publish is reported as partial rather than published.
+
+Private bot messages use the same pipeline with `kind: "private"`. Telegram only permits a bot to message accounts that started it, so each recipient is its own delivery row and unreachable chats surface as failed rather than being silently dropped. Segments are resolved from real profile state (joined today, never mined, inactive 7 days).
+
 
 # Using Authentication (Important!)
 

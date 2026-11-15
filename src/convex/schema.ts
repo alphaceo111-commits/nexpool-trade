@@ -720,11 +720,55 @@ const schema = defineSchema(
       createdAt: v.number(),
       updatedAt: v.number(),
       lastError: v.optional(v.string()),
+      // "broadcast" targets connected groups/channels and requires a connected
+      // destination row. "private" targets individual Telegram chats the bot
+      // already talks to, so no destination row exists for those ids.
+      kind: v.optional(
+        v.union(v.literal("broadcast"), v.literal("private")),
+      ),
+      // Present on automated posts so reports can show which template produced
+      // it and which automation slot it belongs to.
+      templateKey: v.optional(v.string()),
+      automationId: v.optional(v.id("telegramAutomations")),
     })
       .index("by_status", ["status"])
       .index("by_scheduledAt", ["scheduledAt"])
       .index("by_createdAt", ["createdAt"])
       .index("by_idempotencyKey", ["idempotencyKey"]),
+
+    // One row per recurring automated post. The template itself lives in code
+    // (see publishing.ts) so the copy is versioned and reviewable; this table
+    // only holds operator configuration and scheduler state.
+    telegramAutomations: defineTable({
+      templateKey: v.string(),
+      enabled: v.boolean(),
+      destinationIds: v.array(v.string()),
+      frequency: v.union(
+        v.literal("daily"),
+        v.literal("weekly"),
+        v.literal("monthly"),
+      ),
+      // UTC wall clock. Weekly uses weekday (0=Sunday), monthly uses dayOfMonth.
+      hourUtc: v.number(),
+      minuteUtc: v.number(),
+      weekday: v.optional(v.number()),
+      dayOfMonth: v.optional(v.number()),
+      // Draft mode: the run creates a post the operator must approve.
+      requireApproval: v.boolean(),
+      // Rotates through a template's alternate bodies so the channel does not
+      // repeat the same message every day.
+      rotationIndex: v.number(),
+      nextRunAt: v.number(),
+      lastRunAt: v.optional(v.number()),
+      lastPostId: v.optional(v.id("telegramPosts")),
+      lastError: v.optional(v.string()),
+      createdBy: v.string(),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("by_templateKey", ["templateKey"])
+      .index("by_nextRunAt", ["nextRunAt"])
+      .index("by_enabled", ["enabled"]),
 
     // Delivery state is tracked separately for every destination.
     telegramDeliveries: defineTable({

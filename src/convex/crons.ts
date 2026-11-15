@@ -23,4 +23,13 @@ crons.interval(
   {},
 );
 
+// Runs every automated Telegram post whose scheduled UTC slot has arrived.
+// Each run is idempotent per slot, so overlapping ticks cannot double-post.
+crons.interval(
+  "run telegram automations",
+  { minutes: 5 },
+  internal.publishing.runDueAutomations,
+  {},
+);
+
 export default crons;
