@@ -1,6 +1,12 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
-import { getViewer, loadConfig, requireProfile, roundNex } from "./engine";
+import { internalMutation, mutation, query } from "./_generated/server";
+import {
+  audit,
+  getViewer,
+  loadConfig,
+  requireProfile,
+  roundNex,
+} from "./engine";
 import {
   attachReferral,
   listReferralDesk,
@@ -34,6 +40,10 @@ export const applyCode = mutation({
         case "already-attributed":
         case "already-referred":
           throw new Error("This account already has a referrer.");
+        case "unverified-identity":
+          throw new Error(
+            "Link your Telegram account before applying an invite code.",
+          );
         case "loop":
           throw new Error("This invitation would create a referral loop.");
         default:
@@ -44,6 +54,111 @@ export const applyCode = mutation({
     // `attachReferral` already wrote the single join notification for this
     // record; a second one here would double-notify the inviter.
     return { attached: true, status: result.record?.status ?? "pending" };
+  },
+});
+
+/**
+ * Operator recovery for invitations that were never attributed. The Telegram
+ * webhook log is the only durable proof of the original payload: the bot stores
+ * every inbound `/start CODE` together with the chat id, and for a private chat
+ * that id is the verified Telegram user id. Recovery therefore never guesses an
+ * inviter, never overwrites an existing attribution and never merges accounts.
+ * Run with `dryRun: true` first; every applied record is written to the audit
+ * log. Running it again is idempotent because attribution itself is.
+ */
+export const recoverFromBotLog = internalMutation({
+  args: { dryRun: v.boolean(), limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const limit = Math.min(Math.max(args.limit ?? 500, 1), 2000);
+    const messages = await ctx.db
+      .query("botMessages")
+      .withIndex("by_ts")
+      .order("desc")
+      .take(limit);
+
+    const candidates: Array<{
+      telegramId: string;
+      code: string;
+      inviterProfileId: string;
+      inviteeProfileId: string | null;
+      result: "recovered" | "would-recover" | "skipped";
+      reason?: string;
+    }> = [];
+    const seen = new Set<string>();
+
+    for (const message of messages) {
+      if (message.direction !== "inbound" || !message.chatId) continue;
+      const payload = /^\/start(?:@\w+)?\s+(\S+)$/i.exec(message.text.trim());
+      const code = normalizeReferralCode(payload?.[1]);
+      const telegramId = message.chatId.trim();
+      if (!code || !/^\d{3,20}$/.test(telegramId)) continue;
+      const key = `${telegramId}:${code}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const inviter = await ctx.db
+        .query("profiles")
+        .withIndex("by_referralCode", (q) => q.eq("referralCode", code))
+        .first();
+      if (!inviter) continue;
+
+      const inviteeProfile = await ctx.db
+        .query("profiles")
+        .withIndex("by_telegramId", (q) => q.eq("telegramId", telegramId))
+        .first();
+      const existing = await ctx.db
+        .query("referrals")
+        .withIndex("by_inviteeTelegramId", (q) =>
+          q.eq("inviteeTelegramId", telegramId),
+        )
+        .first();
+      const record = {
+        telegramId,
+        code,
+        inviterProfileId: String(inviter._id),
+        inviteeProfileId: inviteeProfile ? String(inviteeProfile._id) : null,
+      };
+
+      if (inviter.telegramId === telegramId) {
+        candidates.push({ ...record, result: "skipped", reason: "self-referral" });
+        continue;
+      }
+      if (existing || inviteeProfile?.referredBy) {
+        candidates.push({ ...record, result: "skipped", reason: "already-attributed" });
+        continue;
+      }
+      if (args.dryRun) {
+        candidates.push({ ...record, result: "would-recover" });
+        continue;
+      }
+
+      const applied = await attachReferral(ctx, {
+        code,
+        inviteeTelegramId: telegramId,
+        inviteeProfile,
+        inviteeName: inviteeProfile?.displayName,
+        source: "legacy",
+      });
+      candidates.push({
+        ...record,
+        result: applied.attached ? "recovered" : "skipped",
+        reason: applied.attached ? undefined : applied.reason,
+      });
+      await audit(
+        ctx,
+        { label: "referral-recovery" },
+        "referral.recover",
+        `telegram ${telegramId} → code ${code} · ${applied.attached ? "attributed" : `skipped: ${applied.reason}`}`,
+      );
+    }
+
+    return {
+      dryRun: args.dryRun,
+      scanned: messages.length,
+      recovered: candidates.filter((row) => row.result === "recovered").length,
+      wouldRecover: candidates.filter((row) => row.result === "would-recover").length,
+      candidates,
+    };
   },
 });
 
@@ -67,15 +182,18 @@ export const summary = query({
       .order("desc")
       .take(50);
 
+    // Rejected attributions are fraud records; they are never invitations.
+    const rejected = countByStatus(rows, "rejected");
+
     return {
       code: profile.referralCode,
       rows,
-      total: rows.length,
+      total: rows.length - rejected,
       qualified: qualified.length,
       pending: countByStatus(rows, "pending"),
       inProgress: countByStatus(rows, "in_progress"),
-      rejected: countByStatus(rows, "rejected"),
-      incomplete: rows.length - qualified.length,
+      rejected,
+      incomplete: rows.length - rejected - qualified.length,
       target: config.qualifiedReferralTarget,
       taskTarget: config.referralTaskTarget,
       bonusPerReferral: roundNex(config.referralBonusNexPerHour),

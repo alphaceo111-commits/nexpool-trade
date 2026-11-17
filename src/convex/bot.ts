@@ -19,7 +19,12 @@ import {
   treasuryAddress,
 } from "./payments";
 import { telegramWebhookSecret } from "./telegramWebhook";
-import { attachReferral, syncReferralProgress } from "./referralEngine";
+import {
+  attachReferral,
+  listReferralDesk,
+  syncReferralProgress,
+} from "./referralEngine";
+
 
 const BOT_KEY = "default";
 const UNITS = { BTC: "BTC", LTC: "LTC", KAS: "KAS", ETC: "ETC" } as const;
@@ -387,25 +392,15 @@ async function userSnapshot(
     };
   });
 
-  const referred = await ctx.db
-    .query("profiles")
-    .withIndex("by_referredBy", (q) => q.eq("referredBy", profile._id))
-    .collect();
-  const qualification = await Promise.all(
-    referred.map(async (referral) => {
-      const rows = await ctx.db
-        .query("taskCompletions")
-        .withIndex("by_user", (q) => q.eq("userId", referral.userId))
-        .collect();
-      const distinct = new Set(
-        rows
-          .filter((row) => row.status === "verified")
-          .map((row) => String(row.taskId)),
-      );
-      return distinct.size >= config.referralTaskTarget;
-    }),
-  );
-  const qualified = qualification.filter(Boolean).length;
+  // Count from the permanent referral records, not only profile links: an
+  // invitee recorded by `/start` has no Mini App profile yet and must still
+  // appear in the inviter's count, exactly as in the Mini App referral desk.
+  const referralRows = await listReferralDesk(ctx, profile._id, config);
+  const qualified = referralRows.filter((row) => row.qualified).length;
+  // Rejected attributions are fraud records, not invitations.
+  const countedReferrals = referralRows.filter(
+    (row) => row.status !== "rejected",
+  ).length;
 
   const ledger = await ctx.db
     .query("ledger")
@@ -509,7 +504,7 @@ async function userSnapshot(
       completed: verified.size,
     },
     referrals: {
-      total: referred.length,
+      total: countedReferrals,
       qualified,
       target: config.qualifiedReferralTarget,
       taskTarget: config.referralTaskTarget,

@@ -288,6 +288,18 @@ export default function AppShell() {
   // retries while the session settles and stops as soon as the snapshot reports
   // a linked telegramId, so name, @handle and avatar always come from Telegram.
   const telegramLinked = snapshot?.account.telegramLinked ?? false;
+  // A referral launch that happened before Telegram was linked is deferred by
+  // the backend (no verified identity to attribute yet). Apply the kept code as
+  // soon as the identity lands, then clear it so it is never replayed.
+  useEffect(() => {
+    if (!telegramLinked) return;
+    const pending = peekReferral();
+    if (!pending) return;
+    ensure({ referralCode: pending })
+      .then(() => takeReferral())
+      .catch(() => undefined);
+  }, [telegramLinked, ensure]);
+
   useEffect(() => {
     if (telegramLinked) return;
     const initData = getTelegram()?.initData;

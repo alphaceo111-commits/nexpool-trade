@@ -14,6 +14,7 @@ import {
   pauseMiningSession,
   readMiningSnapshot,
   requireProfile,
+  resolveTelegramId,
   roundNex,
   settleMining,
   startExtraMiningSession,
@@ -84,7 +85,10 @@ export const ensure = mutation({
       const result = await attachReferral(ctx, {
         code,
         inviteeProfile: profile,
-        inviteeTelegramId: profile.telegramId,
+        // The profile row may not carry the Telegram id yet even though the
+        // auth account already owns it; use the verified identity when known so
+        // the record is keyed by the permanent Telegram id from the start.
+        inviteeTelegramId: await resolveTelegramId(ctx, profile.userId, profile),
         source: "mini_app",
       });
       if (result.record) {
@@ -368,9 +372,10 @@ export const snapshot = query({
         pending: pendingTaskCount,
       },
       referrals: {
-        total: referrals.length,
+        // Rejected attributions are fraud records, not invitations.
+        total: referrals.length - rejectedCount,
         qualified: qualified.length,
-        incomplete: referrals.length - qualified.length,
+        incomplete: referrals.length - rejectedCount - qualified.length,
         pending: pendingCount,
         inProgress: inProgressCount,
         rejected: rejectedCount,

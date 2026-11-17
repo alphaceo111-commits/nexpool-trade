@@ -152,6 +152,8 @@ export async function attachReferral(
     inviteeUsername?: string;
     inviteePhotoUrl?: string;
     source: "bot_start" | "mini_app" | "legacy" | "admin";
+    /** Legacy imports may record a profile that never carried a Telegram id. */
+    allowAnonymousIdentity?: boolean;
   },
 ): Promise<{
   attached: boolean;
@@ -161,6 +163,7 @@ export async function attachReferral(
     | "self"
     | "already-attributed"
     | "already-referred"
+    | "unverified-identity"
     | "loop";
   record?: Doc<"referrals">;
   inviter?: Doc<"profiles">;
@@ -172,10 +175,18 @@ export async function attachReferral(
   if (!inviter) return { attached: false, reason: "unknown-code" };
 
   const profile = args.inviteeProfile ?? null;
+  const verifiedTelegramId =
+    args.inviteeTelegramId?.trim() || profile?.telegramId || "";
+  if (!verifiedTelegramId && !args.allowAnonymousIdentity) {
+    // Attribution requires a verified Telegram identity. A Mini App launch
+    // that has not linked Telegram yet would only be able to write a second,
+    // profile-keyed record for an invitee the bot may already know, so the code
+    // is kept client-side and attributed on the launch that does have a
+    // verified identity.
+    return { attached: false, reason: "unverified-identity", inviter };
+  }
   const telegramId =
-    args.inviteeTelegramId?.trim() ||
-    profile?.telegramId ||
-    (profile ? `anon:${String(profile._id)}` : "");
+    verifiedTelegramId || (profile ? `anon:${String(profile._id)}` : "");
 
   if (!telegramId) return { attached: false, reason: "invalid-code", inviter };
 
@@ -191,11 +202,56 @@ export async function attachReferral(
 
   const config = await loadConfig(ctx);
   const now = Date.now();
+  const permanentTelegramId = telegramId.startsWith("anon:") ? null : telegramId;
 
-  const existing = await findRecordForInvitee(ctx, {
-    telegramId,
-    profileId: profile?._id,
-  });
+  // One invited Telegram account can legitimately reach us twice: the bot
+  // writes a record from `/start` before any profile exists, and a Mini App
+  // launch can write a second one for an anonymous profile that has not been
+  // linked to Telegram yet. Both keys describe the same person, so collapse
+  // them into a single permanent record instead of double-counting the invite.
+  const profileRecord = profile
+    ? await ctx.db
+        .query("referrals")
+        .withIndex("by_inviteeProfile", (q) =>
+          q.eq("inviteeProfileId", profile._id),
+        )
+        .first()
+    : null;
+  const telegramRecord = permanentTelegramId
+    ? await ctx.db
+        .query("referrals")
+        .withIndex("by_inviteeTelegramId", (q) =>
+          q.eq("inviteeTelegramId", permanentTelegramId),
+        )
+        .first()
+    : null;
+  let existing = profileRecord ?? telegramRecord ?? null;
+  if (profileRecord && telegramRecord && profileRecord._id !== telegramRecord._id) {
+    // First attribution wins; the duplicate row is dropped.
+    const [keep, duplicate] =
+      profileRecord.createdAt <= telegramRecord.createdAt
+        ? [profileRecord, telegramRecord]
+        : [telegramRecord, profileRecord];
+    await ctx.db.delete(duplicate._id);
+    existing = keep;
+    if (duplicate.joinNotifiedAt && !keep.joinNotifiedAt) {
+      await ctx.db.patch(keep._id, { joinNotifiedAt: duplicate.joinNotifiedAt });
+      existing = (await ctx.db.get(keep._id))!;
+    }
+  }
+  if (
+    existing &&
+    permanentTelegramId &&
+    existing.inviteeTelegramId !== permanentTelegramId
+  ) {
+    // Upgrading an `anon:<profile>` key to the verified numeric Telegram id is
+    // what makes the record permanent and matchable by later `/start` commands.
+    await ctx.db.patch(existing._id, {
+      inviteeTelegramId: permanentTelegramId,
+      updatedAt: now,
+    });
+    existing = (await ctx.db.get(existing._id))!;
+  }
 
   if (existing) {
     if (existing.inviterProfileId !== inviter._id) {
@@ -206,11 +262,7 @@ export async function attachReferral(
         inviter,
       };
     }
-    if (
-      profile &&
-      existing.inviteeProfileId === undefined &&
-      existing.status !== "rejected"
-    ) {
+    if (profile && existing.status !== "rejected") {
       const verifiedTasks = await verifiedTaskCount(ctx, profile.userId);
       const status = statusForTaskCount(
         verifiedTasks,
@@ -372,6 +424,7 @@ export async function syncReferralProgress(
           profile.telegramId ?? `anon:${String(profile._id)}`,
         inviteeProfile: profile,
         source: profile.telegramId ? "mini_app" : "legacy",
+        allowAnonymousIdentity: true,
       });
       record = result.record ?? null;
     }
