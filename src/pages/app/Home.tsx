@@ -18,6 +18,7 @@ import {
   ChevronRight,
   Coins,
   Gauge as GaugeIcon,
+  LineChart,
   ListChecks,
   Pickaxe,
   ShieldCheck,
@@ -218,6 +219,11 @@ export default function Home() {
         <div className="flex items-center gap-2">
           <CopyButton value={account.nexId} label="Account ID" />
           <Button asChild size="sm" variant="outline" className="gap-1.5">
+            <Link to="/app/terminal">
+              <LineChart className="size-3.5 text-gold" /> Terminal
+            </Link>
+          </Button>
+          <Button asChild size="sm" variant="outline" className="gap-1.5">
             <Link to="/app/earn">
               <Coins className="size-3.5 text-gold" /> Earn
             </Link>
@@ -388,7 +394,13 @@ export default function Home() {
           <NexChart data={snapshot.miningChart} />
           <p className="mt-2 text-[9.5px] leading-relaxed text-muted-foreground">
             Built from confirmed backend mining entries. No synthetic price and no
-            frontend balance projection.
+            frontend balance projection.{" "}
+            <Link
+              to="/app/terminal"
+              className="ml-1 font-semibold text-gold hover:underline"
+            >
+              Open the full terminal
+            </Link>
           </p>
         </Panel>
       </div>

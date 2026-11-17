@@ -20,6 +20,7 @@ import {
   CircleHelp,
   History as HistoryIcon,
   House,
+  LineChart,
   Pickaxe,
   ShieldCheck,
   UserRound,
@@ -33,6 +34,7 @@ import { NavLink, Outlet, useLocation } from "react-router";
 /** The primary tabs shown in the mobile bottom bar. */
 const NAV = [
   { to: "/app", label: "Home", icon: House, end: true },
+  { to: "/app/terminal", label: "Terminal", icon: LineChart, end: false },
   { to: "/app/earn", label: "Earn", icon: Pickaxe, end: false },
   { to: "/app/community", label: "Community", icon: Users, end: false },
   { to: "/app/wallet", label: "Wallet", icon: Wallet, end: false },
@@ -51,6 +53,7 @@ const ACCOUNT_NAV = [
 
 const TITLES: Record<string, string> = {
   "/app": "Home",
+  "/app/terminal": "Financial terminal",
   "/app/earn": "Earn",
   "/app/earn/mining": "Mining engine",
   "/app/earn/tasks": "Tasks & missions",
@@ -438,7 +441,7 @@ export default function AppShell() {
           aria-label="Main navigation"
           className="fixed inset-x-0 bottom-0 z-40 border-t border-border/60 nav-blur bottom-nav lg:hidden"
         >
-          <div className="mx-auto grid max-w-xl grid-cols-5 px-2">
+          <div className="mx-auto grid max-w-xl grid-cols-6 px-1">
             {NAV.map((item) => (
               <NavLink
                 key={item.to}
@@ -446,7 +449,7 @@ export default function AppShell() {
                 end={item.end}
                 className={({ isActive }) =>
                   cn(
-                    "relative flex flex-col items-center gap-1 rounded-2xl py-2.5 text-[9px] font-semibold transition-all",
+                    "relative flex min-w-0 flex-col items-center gap-1 rounded-2xl py-2.5 text-[8.5px] font-semibold transition-all",
                     isActive ? "text-primary" : "text-muted-foreground",
                   )
                 }
@@ -461,7 +464,9 @@ export default function AppShell() {
                     >
                       <item.icon className="size-[19px]" strokeWidth={isActive ? 2.2 : 1.8} />
                     </span>
-                    <span className="tracking-[0.01em]">{item.label}</span>
+                    <span className="max-w-full truncate tracking-[0.01em]">
+                      {item.label}
+                    </span>
                   </>
                 )}
               </NavLink>

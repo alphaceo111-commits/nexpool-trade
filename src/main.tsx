@@ -14,6 +14,7 @@ import "./index.css";
 // Lazy load route components for better code splitting
 const AppShell = lazy(() => import("./components/app/AppShell"));
 const Home = lazy(() => import("./pages/app/Home"));
+const TerminalPage = lazy(() => import("./pages/app/Terminal"));
 const EarnPage = lazy(() => import("./pages/app/Earn"));
 const EarnHub = lazy(() =>
   import("./pages/app/Earn").then((module) => ({ default: module.EarnHub })),
@@ -154,6 +155,7 @@ createRoot(document.getElementById("root")!).render(
                 <Route path="/auth" element={<Navigate to="/app" replace />} />
                 <Route path="/app" element={<AppShell />}>
                   <Route index element={<Home />} />
+                  <Route path="terminal" element={<TerminalPage />} />
                   <Route path="earn" element={<EarnPage />}>
                     <Route index element={<EarnHub />} />
                     <Route path="mining" element={<MiningPage />} />
