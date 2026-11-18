@@ -56,7 +56,8 @@ const DEFAULT_PREFS: Prefs = {
   expanded: false,
 };
 
-const PREFS_KEY = "nexpool.terminal.v1";
+// v2: candle-first defaults (chart opens on the last 90 bars, clean candles).
+const PREFS_KEY = "nexpool.terminal.v2";
 
 /** The terminal is UTC end to end, so labels never disagree with the axis. */
 function utcStamp(ts: number) {

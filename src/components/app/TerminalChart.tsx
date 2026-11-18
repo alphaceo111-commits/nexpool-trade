@@ -31,15 +31,27 @@ export type IndicatorFlags = {
 const PALETTE = {
   up: "#54d98c",
   down: "#e8635c",
-  upFill: "rgba(84,217,140,0.32)",
-  downFill: "rgba(232,99,92,0.32)",
+  upFill: "rgba(84,217,140,0.4)",
+  downFill: "rgba(232,99,92,0.4)",
   gold: "#d9b46b",
   blue: "#7aa2f7",
+  sma: "#6fd3f7",
+  ema: "#eda75a",
+  band: "rgba(167,139,250,0.5)",
+  rsi: "#a78bfa",
   grid: "rgba(255,255,255,0.032)",
   border: "rgba(255,255,255,0.075)",
   text: "#828b86",
   crosshairLabel: "#1b1f21",
 };
+
+/**
+ * How many bars the chart opens on. Rendering the whole 30-day / 720-bar
+ * window squeezes each candle under a pixel, which reads as a line chart; a
+ * bounded window keeps the candlesticks wide enough to be legible, and the
+ * user can still pan/zoom out to the full history.
+ */
+const VISIBLE_BARS = 90;
 
 export function axisNex(value: number) {
   if (value === 0) return "0";
@@ -82,7 +94,7 @@ function baseChart(container: HTMLElement) {
       secondsVisible: false,
       rightOffset: 3,
       barSpacing: 8,
-      minBarSpacing: 0.4,
+      minBarSpacing: 1,
       fixLeftEdge: true,
       ticksVisible: false,
     },
@@ -207,6 +219,26 @@ export function TerminalChart({
   candlesRef.current = candles;
   hoverRef.current = onHover;
 
+  /**
+   * Frame the newest bars at a readable candle width. Used on first paint, on
+   * timeframe change and on reset — never during a live tick, so the user's
+   * own pan/zoom survives a ledger update.
+   */
+  const applyDefaultWindow = () => {
+    const chart = chartRef.current;
+    const count = candlesRef.current.length;
+    if (!chart || count === 0) return;
+    if (count <= VISIBLE_BARS) {
+      chart.timeScale().fitContent();
+    } else {
+      chart
+        .timeScale()
+        .setVisibleLogicalRange({ from: count - VISIBLE_BARS, to: count + 2 });
+    }
+    const range = chart.timeScale().getVisibleLogicalRange();
+    if (range) oscChartRef.current?.timeScale().setVisibleLogicalRange(range);
+  };
+
   // Build the main chart once. Every overlay series exists up front and is
   // toggled with `visible`, so live ledger updates never rebuild the chart or
   // reset the user's zoom.
@@ -261,23 +293,25 @@ export function TerminalChart({
     };
     const smaSeries = chart.addSeries(LineSeries, {
       ...overlay,
-      color: PALETTE.gold,
+      color: PALETTE.sma,
+      lineWidth: 2,
       visible: false,
     });
     const emaSeries = chart.addSeries(LineSeries, {
       ...overlay,
-      color: PALETTE.blue,
+      color: PALETTE.ema,
+      lineWidth: 2,
       visible: false,
     });
     const bandUpperSeries = chart.addSeries(LineSeries, {
       ...overlay,
-      color: "rgba(217,180,107,0.42)",
+      color: PALETTE.band,
       lineStyle: 2,
       visible: false,
     });
     const bandLowerSeries = chart.addSeries(LineSeries, {
       ...overlay,
-      color: "rgba(217,180,107,0.42)",
+      color: PALETTE.band,
       lineStyle: 2,
       visible: false,
     });
@@ -310,8 +344,7 @@ export function TerminalChart({
     const onTap = () => {
       const now = Date.now();
       if (now - lastTap < 320) {
-        chart.timeScale().fitContent();
-        oscChartRef.current?.timeScale().fitContent();
+        applyDefaultWindow();
         lastTap = 0;
         return;
       }
@@ -366,7 +399,7 @@ export function TerminalChart({
     });
 
     const rsiSeries = chart.addSeries(LineSeries, {
-      color: PALETTE.gold,
+      color: PALETTE.rsi,
       lineWidth: 1,
       priceLineVisible: false,
       lastValueVisible: true,
@@ -402,14 +435,14 @@ export function TerminalChart({
     });
 
     const macdSeries = chart.addSeries(LineSeries, {
-      color: PALETTE.gold,
+      color: PALETTE.sma,
       lineWidth: 1,
       priceLineVisible: false,
       lastValueVisible: false,
       visible: false,
     });
     const signalSeries = chart.addSeries(LineSeries, {
-      color: PALETTE.blue,
+      color: PALETTE.ema,
       lineWidth: 1,
       priceLineVisible: false,
       lastValueVisible: false,
@@ -525,7 +558,7 @@ export function TerminalChart({
     const first = candles.length ? candles[0].t : null;
     if (first !== null && first !== firstTime.current) {
       firstTime.current = first;
-      chartRef.current?.timeScale().fitContent();
+      applyDefaultWindow();
     }
   }, [candles]);
 
@@ -588,13 +621,13 @@ export function TerminalChart({
 
   useEffect(() => {
     if (resetKey === 0) return;
-    chartRef.current?.timeScale().fitContent();
-    oscChartRef.current?.timeScale().fitContent();
+    applyDefaultWindow();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resetKey]);
 
   useEffect(() => {
-    chartRef.current?.timeScale().fitContent();
-    oscChartRef.current?.timeScale().fitContent();
+    applyDefaultWindow();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [frameKey]);
 
   return (
