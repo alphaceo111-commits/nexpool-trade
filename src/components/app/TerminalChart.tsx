@@ -8,6 +8,7 @@ import {
   LineSeries,
   createChart,
   type IChartApi,
+  type IPriceLine,
   type ISeriesApi,
   type MouseEventParams,
   type Time,
@@ -28,13 +29,16 @@ export type IndicatorFlags = {
 };
 
 const PALETTE = {
-  up: "#5fe08c",
-  down: "#f2685f",
+  up: "#54d98c",
+  down: "#e8635c",
+  upFill: "rgba(84,217,140,0.32)",
+  downFill: "rgba(232,99,92,0.32)",
   gold: "#d9b46b",
   blue: "#7aa2f7",
-  grid: "rgba(255,255,255,0.045)",
-  border: "rgba(255,255,255,0.08)",
-  text: "#7d857f",
+  grid: "rgba(255,255,255,0.032)",
+  border: "rgba(255,255,255,0.075)",
+  text: "#828b86",
+  crosshairLabel: "#1b1f21",
 };
 
 export function axisNex(value: number) {
@@ -61,35 +65,40 @@ function baseChart(container: HTMLElement) {
       attributionLogo: false,
     },
     grid: {
-      vertLines: { color: PALETTE.grid },
-      horzLines: { color: PALETTE.grid },
+      vertLines: { color: PALETTE.grid, style: 3 },
+      horzLines: { color: PALETTE.grid, style: 3 },
     },
     rightPriceScale: {
       borderColor: PALETTE.border,
-      scaleMargins: { top: 0.12, bottom: 0.08 },
+      borderVisible: true,
+      scaleMargins: { top: 0.14, bottom: 0.1 },
+      ticksVisible: false,
+      entireTextOnly: true,
     },
     timeScale: {
       borderColor: PALETTE.border,
+      borderVisible: true,
       timeVisible: true,
       secondsVisible: false,
-      rightOffset: 2,
-      barSpacing: 7,
+      rightOffset: 3,
+      barSpacing: 8,
       minBarSpacing: 0.4,
       fixLeftEdge: true,
+      ticksVisible: false,
     },
     crosshair: {
       mode: CrosshairMode.Normal,
       vertLine: {
-        color: "rgba(217,180,107,0.55)",
+        color: "rgba(217,180,107,0.5)",
         width: 1,
         style: 2,
-        labelBackgroundColor: "#2a2b26",
+        labelBackgroundColor: PALETTE.crosshairLabel,
       },
       horzLine: {
-        color: "rgba(217,180,107,0.55)",
+        color: "rgba(217,180,107,0.5)",
         width: 1,
         style: 2,
-        labelBackgroundColor: "#2a2b26",
+        labelBackgroundColor: PALETTE.crosshairLabel,
       },
     },
     localization: {
@@ -152,7 +161,7 @@ function applyOscillator(series: OscSeries, candles: ChartCandle[]) {
     stamp(toLine(time, momentum.histogram)).map((point) => ({
       time: point.time,
       value: point.value,
-      color: point.value >= 0 ? "rgba(95,224,140,0.5)" : "rgba(242,104,95,0.5)",
+      color: point.value >= 0 ? "rgba(84,217,140,0.42)" : "rgba(232,99,92,0.42)",
     })),
   );
 }
@@ -165,6 +174,7 @@ export function TerminalChart({
   resetKey,
   showOscillator,
   onHover,
+  balance,
 }: {
   candles: ChartCandle[];
   mode: ChartMode;
@@ -173,6 +183,8 @@ export function TerminalChart({
   resetKey: number;
   showOscillator: boolean;
   onHover: (payload: { candle: ChartCandle | null; time: number | null }) => void;
+  /** Current confirmed NEX balance, drawn as the terminal's value marker. */
+  balance?: number;
 }) {
   const mainRef = useRef<HTMLDivElement | null>(null);
   const oscRef = useRef<HTMLDivElement | null>(null);
@@ -183,6 +195,12 @@ export function TerminalChart({
 
   const chartRef = useRef<IChartApi | null>(null);
   const mainSeries = useRef<MainSeries | null>(null);
+  const balanceLines = useRef<
+    Array<{
+      series: ISeriesApi<"Candlestick"> | ISeriesApi<"Area">;
+      line: IPriceLine;
+    }>
+  >([]);
   const oscChartRef = useRef<IChartApi | null>(null);
   const oscSeries = useRef<OscSeries | null>(null);
 
@@ -208,16 +226,19 @@ export function TerminalChart({
       wickDownColor: PALETTE.down,
       priceFormat: nexFormat,
       priceLineVisible: false,
-      lastValueVisible: true,
+      // The gold BALANCE marker below carries the axis label for this value.
+      lastValueVisible: false,
+      borderVisible: true,
     });
 
     const areaSeries = chart.addSeries(AreaSeries, {
       lineColor: PALETTE.gold,
-      topColor: "rgba(217,180,107,0.28)",
+      topColor: "rgba(217,180,107,0.26)",
       bottomColor: "rgba(217,180,107,0)",
       lineWidth: 2,
       priceFormat: nexFormat,
       priceLineVisible: false,
+      lastValueVisible: false,
       visible: false,
     });
 
@@ -228,7 +249,7 @@ export function TerminalChart({
       lastValueVisible: false,
     });
     chart.priceScale("volume").applyOptions({
-      scaleMargins: { top: 0.84, bottom: 0 },
+      scaleMargins: { top: 0.82, bottom: 0 },
       borderVisible: false,
     });
 
@@ -371,6 +392,14 @@ export function TerminalChart({
       axisLabelVisible: false,
       title: "",
     });
+    rsiSeries.createPriceLine({
+      price: 50,
+      color: "rgba(255,255,255,0.1)",
+      lineWidth: 1,
+      lineStyle: 3,
+      axisLabelVisible: false,
+      title: "",
+    });
 
     const macdSeries = chart.addSeries(LineSeries, {
       color: PALETTE.gold,
@@ -391,6 +420,14 @@ export function TerminalChart({
       lastValueVisible: false,
       priceFormat: nexFormat,
       visible: false,
+    });
+    histogramSeries.createPriceLine({
+      price: 0,
+      color: "rgba(255,255,255,0.14)",
+      lineWidth: 1,
+      lineStyle: 3,
+      axisLabelVisible: false,
+      title: "",
     });
 
     oscSeries.current = {
@@ -461,7 +498,11 @@ export function TerminalChart({
         time: (candle.t / 1000) as UTCTimestamp,
         value: candle.volume,
         color:
-          candle.volume > 0 ? "rgba(95,224,140,0.42)" : "rgba(255,255,255,0.05)",
+          candle.volume <= 0
+            ? "rgba(255,255,255,0.04)"
+            : candle.close >= candle.open
+              ? PALETTE.upFill
+              : PALETTE.downFill,
       })),
     );
 
@@ -487,6 +528,33 @@ export function TerminalChart({
       chartRef.current?.timeScale().fitContent();
     }
   }, [candles]);
+
+  // Value marker for the current confirmed balance. It is a reference line on
+  // the last confirmed close, never a simulated price or trade level.
+  useEffect(() => {
+    const main = mainSeries.current;
+    if (!main) return;
+    for (const entry of balanceLines.current) {
+      entry.series.removePriceLine(entry.line);
+    }
+    balanceLines.current = [];
+    if (balance === undefined || mode === "earnings") return;
+    // Both the candle and area series carry the marker, so it stays visible in
+    // either chart mode while the hidden series keeps it invisible.
+    for (const series of [main.candles, main.area] as const) {
+      balanceLines.current.push({
+        series,
+        line: series.createPriceLine({
+          price: balance,
+          color: "rgba(217,180,107,0.7)",
+          lineWidth: 1,
+          lineStyle: 2,
+          axisLabelVisible: true,
+          title: "BALANCE",
+        }),
+      });
+    }
+  }, [balance, mode, candles]);
 
   // Visibility: chart mode + indicator toggles.
   useEffect(() => {
@@ -538,10 +606,13 @@ export function TerminalChart({
         aria-label="NEXPOOL confirmed balance chart"
       />
       {showOscillator ? (
-        <div
-          ref={oscRef}
-          className="mt-1 h-[86px] w-full shrink-0 border-t border-border/40 pt-1"
-        />
+        <div className="mt-1 shrink-0 border-t border-border/40 pt-1">
+          <div className="flex items-center gap-2 px-0.5 pb-0.5 font-mono text-[8px] uppercase tracking-[0.1em] text-muted-foreground/70">
+            {indicators.rsi ? <span>RSI 14</span> : null}
+            {indicators.macd ? <span>MACD 12 26 9</span> : null}
+          </div>
+          <div ref={oscRef} className="h-[96px] w-full" />
+        </div>
       ) : null}
     </div>
   );

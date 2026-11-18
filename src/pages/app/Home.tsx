@@ -37,6 +37,7 @@ import {
   StatusPill,
 } from "@/components/app/parts";
 import { Button } from "@/components/ui/button";
+import { axisNex } from "@/components/app/TerminalChart";
 import { cn } from "@/lib/utils";
 
 type NexChartPoint = {
@@ -100,48 +101,68 @@ function HomeMiningRing({
 function NexChart({ data }: { data: NexChartPoint[] }) {
   const rows = data.length ? data : [{ day: "today", amountNex: 0, cumulativeNex: 0 }];
   return (
-    <div className="h-[230px] w-full">
+    <div className="relative mt-3 h-[184px] w-full border-t border-border/45 pt-2">
+      <div className="pointer-events-none absolute left-1 top-3 z-10 flex items-center gap-2 font-mono text-[7.5px] uppercase tracking-[0.09em]">
+        <span className="text-gold/90">NEX</span>
+        <span className="text-muted-foreground/70">mining curve</span>
+      </div>
       <ResponsiveContainer width="100%" height="100%">
-        <ComposedChart data={rows} margin={{ top: 8, right: 0, bottom: 0, left: -8 }}>
+        <ComposedChart data={rows} margin={{ top: 12, right: 2, bottom: 0, left: 0 }}>
           <defs>
             <linearGradient id="home-nex-curve" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="var(--gold)" stopOpacity={0.3} />
+              <stop offset="0%" stopColor="var(--gold)" stopOpacity={0.22} />
               <stop offset="100%" stopColor="var(--gold)" stopOpacity={0} />
             </linearGradient>
           </defs>
-          <CartesianGrid stroke="var(--border)" strokeDasharray="2 5" vertical={false} />
+          <CartesianGrid
+            stroke="var(--border)"
+            strokeOpacity={0.55}
+            strokeDasharray="2 6"
+            vertical={false}
+          />
           <XAxis
             dataKey="day"
             tickFormatter={(value: string) => value.slice(5)}
-            tick={{ fontSize: 9, fill: "var(--muted-foreground)" }}
+            tick={{ fontSize: 8.5, fill: "var(--muted-foreground)" }}
             axisLine={false}
             tickLine={false}
+            minTickGap={22}
           />
           <YAxis
-            width={62}
-            tickFormatter={(value: number) => (value === 0 ? "0" : value.toExponential(1))}
-            tick={{ fontSize: 9, fill: "var(--muted-foreground)" }}
+            width={48}
+            tickFormatter={(value: number) => axisNex(value)}
+            tick={{ fontSize: 8.5, fill: "var(--muted-foreground)" }}
             axisLine={false}
             tickLine={false}
           />
           <Tooltip
+            cursor={{ stroke: "color-mix(in oklab, var(--gold) 40%, transparent)" }}
             contentStyle={{
               background: "var(--popover)",
-              border: "1px solid var(--border)",
-              borderRadius: 12,
-              fontSize: 11,
+              border: "1px solid color-mix(in oklab, var(--gold) 22%, var(--border))",
+              borderRadius: 8,
+              fontSize: 10,
+              fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
             }}
+            labelStyle={{ color: "var(--muted-foreground)", fontSize: 9 }}
             labelFormatter={(label) => `UTC ${String(label)}`}
             formatter={(value) => [formatNex(Number(value)), "NEX"]}
           />
-          <Bar dataKey="amountNex" fill="var(--primary)" opacity={0.22} radius={[4, 4, 0, 0]} barSize={12} />
+          <Bar
+            dataKey="amountNex"
+            fill="var(--gold)"
+            opacity={0.18}
+            radius={[2, 2, 0, 0]}
+            barSize={9}
+          />
           <Area
             type="monotone"
             dataKey="cumulativeNex"
             stroke="var(--gold)"
             fill="url(#home-nex-curve)"
-            strokeWidth={2}
+            strokeWidth={1.8}
             dot={false}
+            activeDot={{ r: 2.5, fill: "var(--gold)", stroke: "none" }}
           />
         </ComposedChart>
       </ResponsiveContainer>
@@ -371,38 +392,78 @@ export default function Home() {
           </Button>
         </Panel>
 
-        <Panel
-          eyebrow="Earnings pulse"
-          title="Confirmed mining curve"
-          action={
-            <span className="flex items-center gap-1 font-mono text-[8.5px] uppercase tracking-[0.08em] text-muted-foreground">
-              <TrendingUp className="size-3 text-primary" /> ledger
+        <section className="premium-card overflow-hidden rounded-2xl">
+          <div className="flex h-11 items-center gap-2 border-b border-border/50 px-4">
+            <span className="relative flex size-1.5 shrink-0 rounded-full bg-up">
+              <span className="absolute inset-0 animate-ping rounded-full bg-up/50" />
             </span>
-          }
-        >
-          <div className="flex items-end justify-between gap-3">
-            <div>
-              <p className="num text-[26px] font-semibold text-gold">{formatNex(speed.total)}</p>
-              <p className="mt-1 text-[10.5px] text-muted-foreground">NEX per hour · confirmed server rate</p>
-            </div>
-            <div className="text-right">
-              <p className="label-xs">Today</p>
-              <p className="num mt-1 text-[14px] font-semibold">{formatNex(mining.todayTotalNex)}</p>
-              <p className="mt-0.5 text-[9px] text-muted-foreground">normal + extension</p>
-            </div>
-          </div>
-          <NexChart data={snapshot.miningChart} />
-          <p className="mt-2 text-[9.5px] leading-relaxed text-muted-foreground">
-            Built from confirmed backend mining entries. No synthetic price and no
-            frontend balance projection.{" "}
+            <span className="font-mono text-[10.5px] font-bold tracking-[0.12em]">NEX</span>
+            <span className="truncate font-mono text-[8px] uppercase tracking-[0.14em] text-muted-foreground">
+              confirmed earnings
+            </span>
+            <span className="ml-1 hidden rounded border border-border/60 px-1 py-px font-mono text-[8px] uppercase tracking-[0.1em] text-muted-foreground sm:inline">
+              UTC
+            </span>
             <Link
               to="/app/terminal"
-              className="ml-1 font-semibold text-gold hover:underline"
+              className="ml-auto flex shrink-0 items-center gap-1 font-mono text-[8px] uppercase tracking-[0.1em] text-gold transition-opacity hover:opacity-80"
             >
-              Open the full terminal
+              <LineChart className="size-3" /> Terminal
             </Link>
-          </p>
-        </Panel>
+          </div>
+          <div className="px-4 py-3.5">
+            <div className="flex flex-wrap items-end justify-between gap-4">
+              <div>
+                <p className="font-mono text-[7.5px] uppercase tracking-[0.1em] text-muted-foreground/80">
+                  Mining speed
+                </p>
+                <p className="num mt-1 text-[26px] font-semibold leading-none text-gold">
+                  {formatNex(speed.total)}
+                </p>
+                <p className="mt-1 text-[9.5px] text-muted-foreground">
+                  NEX / hour · confirmed server rate
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-x-6">
+                <div>
+                  <p className="font-mono text-[7.5px] uppercase tracking-[0.1em] text-muted-foreground/80">
+                    Today
+                  </p>
+                  <p className="num mt-1 text-[14px] font-semibold text-up">
+                    +{formatNex(mining.todayTotalNex)}
+                  </p>
+                  <p className="mt-0.5 font-mono text-[7px] uppercase tracking-[0.08em] text-muted-foreground/70">
+                    normal + extension
+                  </p>
+                </div>
+                <div>
+                  <p className="font-mono text-[7.5px] uppercase tracking-[0.1em] text-muted-foreground/80">
+                    Confirmed
+                  </p>
+                  <p className="num mt-1 text-[14px] font-semibold">
+                    {formatNex(balance.totalNex)}
+                  </p>
+                  <p className="mt-0.5 font-mono text-[7px] uppercase tracking-[0.08em] text-muted-foreground/70">
+                    ledger balance
+                  </p>
+                </div>
+              </div>
+            </div>
+            <NexChart data={snapshot.miningChart} />
+            <div className="mt-2 flex items-center justify-between gap-2 border-t border-border/45 pt-2">
+              <p className="text-[9px] leading-relaxed text-muted-foreground">
+                Confirmed mining entries only — no synthetic price, no frontend
+                projection.
+              </p>
+              <Link
+                to="/app/terminal"
+                className="flex shrink-0 items-center gap-1 font-mono text-[8px] uppercase tracking-[0.1em] text-gold"
+              >
+                Open <ChevronRight className="size-3" />
+              </Link>
+            </div>
+          </div>
+        </section>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
