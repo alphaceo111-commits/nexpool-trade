@@ -14,6 +14,7 @@ import {
   roundNex,
 } from "./engine";
 import { isTelegramAdmin } from "./auth/telegram";
+import { isValidTonAddress, treasuryAddress } from "./payments";
 
 const taskCategory = v.union(
   v.literal("advertisement"),
@@ -143,6 +144,7 @@ export const overview = query({
     const tasks = await ctx.db.query("tasks").collect();
     const completions = await ctx.db.query("taskCompletions").collect();
     const withdrawals = await ctx.db.query("withdrawals").collect();
+    const depositRows = await ctx.db.query("deposits").collect();
     const audits = await ctx.db
       .query("auditLogs")
       .withIndex("by_createdAt")
@@ -154,6 +156,18 @@ export const overview = query({
     const pendingWithdrawals = withdrawals.filter(
       (row) => row.status === "requested" || row.status === "reviewing",
     );
+
+    // Deposit rail health. A quote that is still `pending` past its expiry was
+    // never matched to an on-chain payment, which is different from a payment
+    // that failed verification, so they are reported separately.
+    const now = Date.now();
+    const treasury = treasuryAddress();
+    const treasuryConfigured = Boolean(
+      treasury && isValidTonAddress(treasury),
+    );
+    const recentDeposits = [...depositRows]
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, 6);
 
     return {
       config: {
@@ -218,6 +232,41 @@ export const overview = query({
                   100,
               )
             : 0,
+      },
+      deposits: {
+        total: depositRows.length,
+        openQuotes: depositRows.filter(
+          (row) => row.status === "pending" && now < row.expiresAt,
+        ).length,
+        expiredQuotes: depositRows.filter(
+          (row) => row.status === "pending" && now >= row.expiresAt,
+        ).length,
+        confirmed: depositRows.filter((row) => row.status === "confirmed")
+          .length,
+        failed: depositRows.filter((row) => row.status === "failed").length,
+        last7d: depositRows.filter(
+          (row) => row.createdAt > now - 7 * 86_400_000,
+        ).length,
+        creditedNex: roundNex(
+          depositRows.reduce((sum, row) => sum + (row.creditedNex ?? 0), 0),
+        ),
+        receivedTon: Number(
+          depositRows
+            .reduce((sum, row) => sum + (row.receivedTon ?? 0), 0)
+            .toFixed(4),
+        ),
+        treasuryConfigured,
+        ratesConfigured: config.nexUsdRate > 0 && config.tonUsdRate > 0,
+        recent: recentDeposits.map((row) => ({
+          id: row._id,
+          nexId: row.nexId,
+          memo: row.memo,
+          tonAmount: row.tonAmount,
+          creditedNex: row.creditedNex,
+          status: row.status,
+          createdAt: row.createdAt,
+          txHash: row.txHash,
+        })),
       },
       recentAudit: audits.map((row) => ({
         id: row._id,

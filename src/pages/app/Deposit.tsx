@@ -11,9 +11,11 @@ import {
   ArrowDownToLine,
   Ban,
   Check,
+  ChevronDown,
   Clock,
   ExternalLink,
   Gauge,
+  History as HistoryIcon,
   ListChecks,
   ShieldCheck,
   Users,
@@ -34,8 +36,10 @@ import {
   StatusPill,
 } from "@/components/app/parts";
 import { TonConnectShell } from "@/components/app/TonConnectShell";
+import { DepositTimeline } from "@/components/app/DepositTimeline";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { friendlyError } from "@/lib/errors";
 import { openExternal } from "@/lib/telegram";
 import { TON_EXPLORER_TX } from "@/lib/ton";
 import { cn } from "@/lib/utils";
@@ -108,6 +112,10 @@ function Deposit() {
   const [amount, setAmount] = useState("5");
   const [intent, setIntent] = useState<DepositIntent | null>(null);
   const [busy, setBusy] = useState<"create" | "verify" | null>(null);
+  // Only set when this browser observed the wallet approval, so the deposit
+  // timeline never claims a payment that was not actually sent.
+  const [submitted, setSubmitted] = useState<Record<string, number>>({});
+  const [openId, setOpenId] = useState<string | null>(null);
 
   if (!status) {
     return (
@@ -155,9 +163,13 @@ function Deposit() {
       toast.success(`${formatNex(result.creditedNex)} NEX credited to your balance`);
       setIntent(null);
     } else if (result.status === "failed") {
-      toast.error("That payment could not be credited. Contact support with the transaction hash.");
+      toast.error(
+        "That payment could not be verified. Contact support with the transaction hash.",
+      );
     } else {
-      toast.info("No matching TON transfer yet. If you just paid, give the indexer a moment.");
+      toast.info(
+        "No matching TON transfer yet. If you just paid, NEXPOOL keeps checking automatically.",
+      );
     }
     return result;
   };
@@ -171,7 +183,9 @@ function Deposit() {
         return;
       }
       if (result.status === "failed") {
-        toast.error("That payment could not be credited. Contact support with the transaction hash.");
+        toast.error(
+          "That payment could not be verified. Contact support with the transaction hash.",
+        );
         return;
       }
       if (attempt < 2) {
@@ -179,8 +193,8 @@ function Deposit() {
       }
     }
     toast.info(
-      "Transfer sent. The backend is still waiting for the TON indexer — it will credit your NEX automatically.",
-      { duration: 7000 },
+      "Transfer sent. Verification is still running — your NEX is credited automatically once the blockchain check completes, even if you close NEXPOOL.",
+      { duration: 8000 },
     );
   };
 
@@ -220,23 +234,20 @@ function Deposit() {
     } catch (error) {
       toast.error(
         error instanceof Error
-          ? error.message
+          ? friendlyError(error)
           : "The transfer was not sent. Nothing was charged.",
       );
       setBusy(null);
       return;
     }
 
+    setSubmitted((previous) => ({ ...previous, [quote.id]: Date.now() }));
     setBusy("verify");
     toast.success("Transfer sent. Checking TON for your payment reference…");
     try {
       await poll(quote);
     } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "The transfer was sent but verification is unavailable right now.",
-      );
+      toast.error(friendlyError(error));
     } finally {
       setBusy(null);
     }
@@ -262,9 +273,7 @@ function Deposit() {
     try {
       quote = await createQuote();
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Could not create a deposit quote.",
-      );
+      toast.error(friendlyError(error));
       setBusy(null);
       return;
     }
@@ -537,9 +546,12 @@ function Deposit() {
           title="Recent TON payments"
           bodyClassName="p-0"
           action={
-            <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
-              {status.deposits.length} intents
-            </span>
+            <Link
+              to="/app/history"
+              className="flex items-center gap-1 font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <HistoryIcon className="size-3" /> Full history
+            </Link>
           }
         >
           <ul className="divide-y divide-border/60">
@@ -565,6 +577,30 @@ function Deposit() {
                       {statusLabel(deposit)}
                     </StatusPill>
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setOpenId(openId === deposit.id ? null : deposit.id)
+                    }
+                    aria-expanded={openId === deposit.id}
+                    className="mt-2 inline-flex items-center gap-1 font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    <ChevronDown
+                      className={cn(
+                        "size-3 transition-transform",
+                        openId === deposit.id && "rotate-180",
+                      )}
+                    />
+                    {openId === deposit.id ? "Hide status" : "Track payment"}
+                  </button>
+
+                  {openId === deposit.id ? (
+                    <DepositTimeline
+                      row={deposit}
+                      submittedAt={submitted[deposit.id]}
+                    />
+                  ) : null}
 
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     {deposit.status === "confirmed" && deposit.txHash ? (
@@ -639,6 +675,11 @@ function Deposit() {
               );
             })}
           </ul>
+          <p className="border-t border-border/60 px-3.5 py-2.5 text-[10px] leading-relaxed text-muted-foreground">
+            NEXPOOL checks the treasury every few minutes and whenever this page
+            opens. A verified payment credits your balance and ledger
+            automatically — no screenshot and no manual claim.
+          </p>
         </Panel>
       ) : null}
 

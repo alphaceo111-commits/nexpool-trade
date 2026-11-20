@@ -252,7 +252,7 @@ function Overview({ onTab }: { onTab: (tab: TabKey) => void }) {
   const [saving, setSaving] = useState<string | null>(null);
 
   if (!overview) return <LoadingBlock rows={4} />;
-  const { service, counts, treasury, config, recentAudit } = overview;
+  const { service, counts, treasury, config, recentAudit, deposits } = overview;
 
   const emergencyToggle = async (field: "miningEnabled" | "withdrawalsEnabled") => {
     setSaving(field);
@@ -479,6 +479,121 @@ function Overview({ onTab }: { onTab: (tab: TabKey) => void }) {
           </div>
         </Panel>
       </div>
+
+      <Panel
+        eyebrow="TON deposits"
+        title="Deposit rail"
+        action={
+          <StatusPill
+            tone={
+              deposits.treasuryConfigured && deposits.ratesConfigured
+                ? "up"
+                : "warn"
+            }
+          >
+            {deposits.treasuryConfigured && deposits.ratesConfigured
+              ? "Live"
+              : "Offline"}
+          </StatusPill>
+        }
+      >
+        {!deposits.treasuryConfigured ? (
+          <p className="mb-3 rounded-lg border border-warn/40 bg-warn/[0.05] px-3 py-2 text-[10.5px] leading-relaxed text-muted-foreground">
+            No valid TON treasury address is configured on this deployment, so
+            users cannot create a deposit quote. Set{" "}
+            <code className="font-mono text-[10px] text-foreground">
+              TON_TREASURY_ADDRESS
+            </code>{" "}
+            (or{" "}
+            <code className="font-mono text-[10px] text-foreground">
+              TON_DEPOSIT_ADDRESS
+            </code>
+            ) and publish TON/NEX reference rates before opening the rail.
+          </p>
+        ) : null}
+        <div className="grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-4">
+          <Metric
+            label="Open quotes"
+            value={deposits.openQuotes}
+            sub="awaiting payment"
+            tone={deposits.openQuotes > 0 ? "warn" : "default"}
+          />
+          <Metric
+            label="Confirmed"
+            value={deposits.confirmed}
+            sub={`${deposits.receivedTon} TON received`}
+            tone="up"
+          />
+          <Metric
+            label="Failed"
+            value={deposits.failed}
+            sub="verification rejected"
+            tone={deposits.failed > 0 ? "down" : "default"}
+          />
+          <Metric
+            label="Expired quotes"
+            value={deposits.expiredQuotes}
+            sub="never matched"
+          />
+          <Metric
+            label="Credited NEX"
+            value={formatNex(deposits.creditedNex)}
+            sub="all confirmed deposits"
+            tone="gold"
+          />
+          <Metric
+            label="Last 7 days"
+            value={deposits.last7d}
+            sub="new intents"
+          />
+          <Metric
+            label="Reference rates"
+            value={deposits.ratesConfigured ? "Set" : "Missing"}
+            sub="TON + NEX"
+            tone={deposits.ratesConfigured ? "default" : "warn"}
+          />
+          <Metric label="Total intents" value={deposits.total} sub="all time" />
+        </div>
+        {deposits.recent.length > 0 ? (
+          <ul className="mt-3 divide-y divide-border/60 border-t border-border/70">
+            {deposits.recent.map((row) => (
+              <li
+                key={row.id}
+                className="flex items-center justify-between gap-2 py-2"
+              >
+                <div className="min-w-0">
+                  <p className="num text-[11px]">
+                    {row.tonAmount.toFixed(2)} TON
+                    {row.creditedNex ? (
+                      <span className="ml-1.5 text-[10px] text-up">
+                        +{formatNex(row.creditedNex)} NEX
+                      </span>
+                    ) : null}
+                  </p>
+                  <p className="truncate font-mono text-[8.5px] uppercase tracking-[0.08em] text-muted-foreground">
+                    {row.nexId} · {row.memo} · {formatDateTime(row.createdAt)}
+                  </p>
+                </div>
+                <StatusPill
+                  tone={
+                    row.status === "confirmed"
+                      ? "up"
+                      : row.status === "failed"
+                        ? "down"
+                        : "warn"
+                  }
+                >
+                  {row.status}
+                </StatusPill>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-3 border-t border-border/70 pt-3 text-[11px] text-muted-foreground">
+            No deposit intents yet.
+          </p>
+        )}
+      </Panel>
 
       <Panel
         eyebrow="Recent operator activity"

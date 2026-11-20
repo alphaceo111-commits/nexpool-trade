@@ -1,8 +1,11 @@
 import { BrandMark } from "@/components/Brand";
+import { BootSplash, DashboardSkeleton } from "@/components/app/BootSplash";
+import { ConnectionBanner } from "@/components/app/ConnectionBanner";
 import { MiningPopupsProvider } from "@/components/app/MiningPopups";
-import { LoadingBlock, StatusPill, formatNex } from "@/components/app/parts";
-import { Button } from "@/components/ui/button";
+import { StatusPill, formatNex } from "@/components/app/parts";
 import { api } from "@/convex/_generated/api";
+import { useOnlineStatus } from "@/hooks/use-online-status";
+import { friendlyError } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import {
   getTelegram,
@@ -218,7 +221,11 @@ export default function AppShell() {
   const heartbeatMining = useMutation(api.app.heartbeatMining);
   const stopMining = useMutation(api.app.stopMining);
   const linkTelegram = useAction(api.telegram.linkTelegram);
-  const booting = useRef(false);
+  const online = useOnlineStatus();
+  // Set while the account still needs a successful bootstrap, so a returning
+  // connection retries exactly once and a healthy app is never re-bootstrapped.
+  const bootNeeded = useRef(true);
+  const [bootPhase, setBootPhase] = useState<0 | 1 | 2>(0);
   const [bootError, setBootError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
 
@@ -236,17 +243,56 @@ export default function AppShell() {
     // Mining in Earn, even after a new UTC day resets the daily allowance.
   };
 
+  /**
+   * Runs the idempotent bootstrap with a short backoff. `ensure` only creates
+   * or returns the caller's own account, so retrying it can never duplicate a
+   * balance or a ledger entry. Financial mutations are never auto-retried.
+   */
+  const runBootstrap = async () => {
+    setBootPhase(0);
+    setBootError(null);
+    let lastError: unknown = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (!navigator.onLine) break;
+      setBootPhase(attempt === 0 ? 1 : 2);
+      try {
+        await bootstrap();
+        setBootPhase(2);
+        setBootError(null);
+        bootNeeded.current = false;
+        return;
+      } catch (error) {
+        lastError = error;
+        if (attempt < 2) {
+          await new Promise((resolve) =>
+            window.setTimeout(resolve, 900 * (attempt + 1)),
+          );
+        }
+      }
+    }
+    bootNeeded.current = true;
+    setBootError(
+      !navigator.onLine
+        ? "You're offline. Your account and balance are safe — reconnect to continue."
+        : friendlyError(lastError),
+    );
+  };
+
   useEffect(() => {
     initTelegram();
-    if (booting.current) return;
-    booting.current = true;
-    bootstrap()
-      .catch((error) => {
-        setBootError(
-          error instanceof Error ? error.message : "Could not open your account.",
-        );
-      })
-      .finally(() => setRetrying(false));
+    // Deferred one tick so the branded splash paints before the first mutation
+    // round-trip starts.
+    const start = window.setTimeout(() => void runBootstrap(), 0);
+    // A connection that returns after a failed bootstrap retries on its own, so
+    // users do not have to understand which request failed.
+    const onOnline = () => {
+      if (bootNeeded.current) void runBootstrap();
+    };
+    window.addEventListener("online", onOnline);
+    return () => {
+      window.clearTimeout(start);
+      window.removeEventListener("online", onOnline);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -329,47 +375,38 @@ export default function AppShell() {
 
   const retry = () => {
     setRetrying(true);
-    setBootError(null);
-    bootstrap()
-      .catch((error) =>
-        setBootError(error instanceof Error ? error.message : "Still unavailable."),
-      )
-      .finally(() => setRetrying(false));
+    runBootstrap().finally(() => setRetrying(false));
   };
 
   if (!snapshot) {
-    return (
-      <div className="min-h-[100dvh] bg-background">
-        <div className="mx-auto w-full max-w-[1120px] px-4 py-8">
-          <div className="mb-5 flex items-center gap-2">
-            <BrandMark className="text-primary" />
-            <span className="font-mono text-xs tracking-[0.2em]">NEXPOOL</span>
-          </div>
-          {bootError ? (
-            <div className="rounded-md border border-warn/40 bg-warn/5 p-4">
-              <p className="text-[13px] font-medium">Account bootstrap failed</p>
-              <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
-                {bootError}
-              </p>
-              <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-                Backend: Convex · nothing was simulated
-              </p>
-              <Button
-                className="mt-3"
-                size="sm"
-                variant="outline"
-                onClick={retry}
-                disabled={retrying}
-              >
-                {retrying ? "Retrying…" : "Retry bootstrap"}
-              </Button>
-            </div>
-          ) : (
-            <LoadingBlock rows={4} />
-          )}
-        </div>
-      </div>
-    );
+    if (bootError) {
+      return (
+        <BootSplash
+          stage={bootPhase}
+          error={bootError}
+          offline={!online}
+          onRetry={retry}
+          retrying={retrying}
+        />
+      );
+    }
+    if (bootPhase < 2) {
+      return (
+        <BootSplash
+          stage={bootPhase}
+          offline={!online}
+          detail={
+            bootPhase === 0
+              ? "Connecting securely to your Telegram session…"
+              : "Opening the account that belongs to this Telegram identity…"
+          }
+        />
+      );
+    }
+    // The account exists; the first snapshot is still in flight. Showing the
+    // real shell with placeholders keeps navigation usable instead of blocking
+    // the whole app on one query.
+    return <DashboardSkeleton />;
   }
 
   const title = TITLES[location.pathname] ?? "NEXPOOL";
@@ -437,6 +474,8 @@ export default function AppShell() {
             </NavLink>
           </div>
         </header>
+
+        <ConnectionBanner />
 
         <motion.main
           key={location.pathname}

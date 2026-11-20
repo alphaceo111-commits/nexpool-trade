@@ -1,6 +1,9 @@
 import { BrandMark } from "@/components/Brand";
+import { BootSplash } from "@/components/app/BootSplash";
 import { Button } from "@/components/ui/button";
 import { api } from "@/convex/_generated/api";
+import { useOnlineStatus } from "@/hooks/use-online-status";
+import { friendlyError } from "@/lib/errors";
 import { getTelegram, initTelegram } from "@/lib/telegram";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useAction, useConvexAuth, useQuery } from "convex/react";
@@ -25,6 +28,7 @@ const STEPS = [
  * account instead.
  */
 export function TelegramSessionGate({ children }: { children: ReactNode }) {
+  const online = useOnlineStatus();
   const { isLoading, isAuthenticated } = useConvexAuth();
   const user = useQuery(api.users.currentUser);
   const { signIn, signOut } = useAuthActions();
@@ -209,7 +213,7 @@ export function TelegramSessionGate({ children }: { children: ReactNode }) {
       <SessionScreen
         eyebrow="AUTH · FAILED"
         title="Telegram handshake failed"
-        body={error}
+        body={friendlyError(error)}
         footer={
           <div className="space-y-2">
             <Button
@@ -233,47 +237,17 @@ export function TelegramSessionGate({ children }: { children: ReactNode }) {
   }
 
   if (isLoading || !isAuthenticated || user === undefined) {
+    // Progressive, honest startup: the branded screen names the real handshake
+    // stage. It never shortens authentication to make the UI appear faster.
+    const stageIndex = Math.min(2, Math.max(0, step)) as 0 | 1 | 2;
     return (
-      <SessionScreen
-        eyebrow="AUTH · TELEGRAM"
-        title="Opening your mining account"
-        body="NEXPOOL never issues email credentials. Your Telegram identity is the account."
-        footer={
-          <div className="space-y-2.5">
-            <div className="h-0.5 w-full overflow-hidden bg-border">
-              <div className="h-full w-1/3 animate-signal-pulse bg-primary" />
-            </div>
-            <ul className="space-y-1.5">
-              {STEPS.map((label, index) => (
-                <li
-                  key={label}
-                  className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.14em]"
-                >
-                  <span
-                    className={
-                      index < step
-                        ? "size-1.5 bg-up"
-                        : index === step
-                          ? "size-1.5 animate-signal-pulse bg-primary"
-                          : "size-1.5 bg-border"
-                    }
-                  />
-                  <span
-                    className={
-                      index <= step
-                        ? "text-foreground"
-                        : "text-muted-foreground/60"
-                    }
-                  >
-                    {label}
-                  </span>
-                  {index < step ? (
-                    <span className="ml-auto text-up">verified</span>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          </div>
+      <BootSplash
+        stage={stageIndex}
+        offline={!online}
+        detail={
+          !online
+            ? "NEXPOOL is waiting for your connection. Your account is untouched."
+            : STEPS[stageIndex]
         }
       />
     );
