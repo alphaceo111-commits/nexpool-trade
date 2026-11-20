@@ -1,4 +1,5 @@
 import { Brand } from "@/components/Brand";
+import { PostLibraryPanel } from "@/components/console/PostLibraryPanel";
 import {
   EmptyState,
   formatDateTime,
@@ -15,6 +16,7 @@ import type { FunctionReturnType } from "convex/server";
 import { useAction, useMutation, useQuery } from "convex/react";
 import {
   ArrowLeft,
+  BookOpen,
   Bot,
   CalendarClock,
   CheckCircle2,
@@ -63,6 +65,7 @@ const TABS = [
   { key: "destinations", label: "Groups & channels", icon: Users },
   { key: "composer", label: "Composer", icon: Megaphone },
   { key: "automations", label: "Automations", icon: CalendarClock },
+  { key: "library", label: "Post library", icon: BookOpen },
   { key: "reports", label: "Publishing reports", icon: Send },
 ] as const;
 
@@ -801,6 +804,7 @@ export default function TelegramCenter() {
               posts={overview.posts}
             />
           ) : null}
+          {tab === "library" ? <PostLibraryPanel /> : null}
           {tab === "reports" ? (
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">

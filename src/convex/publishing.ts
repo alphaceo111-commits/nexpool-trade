@@ -1,6 +1,11 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
+import {
+  LIBRARY_TEMPLATES,
+  SCHEDULABLE_TEMPLATE_IDS,
+  renderLibraryTemplate,
+} from "./telegramLibrary";
 import type { ActionCtx, MutationCtx, QueryCtx } from "./_generated/server";
 import {
   action,
@@ -455,6 +460,48 @@ function rankingBlock(
     .map((row, index) => rankLine(index + 1, row, suffix(row)))
     .join("\n");
 }
+
+/**
+ * Library posts that can be scheduled honestly today: static copy only, no
+ * dynamic placeholder and no dependency on a feature NEXPOOL does not record.
+ * They use the same automation engine, delivery queue and idempotency keys as
+ * the native templates, so a library post is not a second publishing system.
+ */
+const LIBRARY_CATEGORY_BY_ID: Record<string, PublishCategory> = {
+  C01: "motivation",
+  C15: "education",
+  C19: "motivation",
+  C20: "motivation",
+  G01: "motivation",
+  G03: "tasks",
+  G08: "referrals",
+  G09: "motivation",
+  G11: "education",
+  G12: "motivation",
+  G18: "education",
+  G19: "motivation",
+  G20: "motivation",
+};
+
+const LIBRARY_AUTOMATION_TEMPLATES: PublishTemplate[] = SCHEDULABLE_TEMPLATE_IDS.map(
+  (id) => {
+    const template = LIBRARY_TEMPLATES.find((row) => row.id === id);
+    if (!template?.schedule) {
+      throw new Error(`Library template ${id} has no schedule.`);
+    }
+    return {
+      key: `lib_${id.toLowerCase()}`,
+      category: LIBRARY_CATEGORY_BY_ID[id] ?? "motivation",
+      label: `${id} · ${template.title}`,
+      description: `${template.trigger}. Library copy, sent as plain text.`,
+      frequency: template.schedule.frequency,
+      hourUtc: template.schedule.hourUtc,
+      minuteUtc: template.schedule.minuteUtc,
+      variants: 1,
+      build: () => renderLibraryTemplate(id, {}),
+    };
+  },
+);
 
 export const PUBLISH_TEMPLATES: PublishTemplate[] = [
   /* ---------------------------------------------------- leaderboards */
@@ -1122,6 +1169,7 @@ export const PUBLISH_TEMPLATES: PublishTemplate[] = [
       ].join("\n"),
     }),
   },
+  ...LIBRARY_AUTOMATION_TEMPLATES,
 ];
 
 export const templateByKey = new Map(PUBLISH_TEMPLATES.map((t) => [t.key, t]));
