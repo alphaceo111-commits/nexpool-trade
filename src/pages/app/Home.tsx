@@ -22,7 +22,6 @@ import {
   ListChecks,
   Pickaxe,
   ShieldCheck,
-  TrendingUp,
   Users,
   Wallet,
 } from "lucide-react";
@@ -37,6 +36,7 @@ import {
   StatusPill,
 } from "@/components/app/parts";
 import { Button } from "@/components/ui/button";
+import { OnboardingChecklist } from "@/components/app/OnboardingChecklist";
 import { axisNex } from "@/components/app/TerminalChart";
 import { cn } from "@/lib/utils";
 
@@ -251,6 +251,15 @@ export default function Home() {
           </Button>
         </div>
       </div>
+
+      <OnboardingChecklist
+        accountNexId={account.nexId}
+        miningStarted={account.firstMiningStartedAt !== null}
+        walletConnected={Boolean(account.walletAddress)}
+        telegramLinked={account.telegramLinked}
+        tasksCompleted={tasks.completed}
+        referralsQualified={referrals.qualified}
+      />
 
       <div className="grid gap-4 lg:grid-cols-[1.12fr_0.88fr]">
         <section className="premium-card card-sheen relative overflow-hidden rounded-3xl p-5 sm:p-7">

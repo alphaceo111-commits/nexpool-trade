@@ -1,4 +1,5 @@
 import { Brand } from "@/components/Brand";
+import { GrowthPanel } from "@/components/console/GrowthPanel";
 import {
   EmptyState,
   formatDateTime,
@@ -40,6 +41,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Trash2,
+  TrendingUp,
   Users,
   Wallet,
 } from "lucide-react";
@@ -50,6 +52,7 @@ type AdminConfig = AdminOverview["config"];
 
 const TABS = [
   { key: "overview", label: "Overview", icon: Activity },
+  { key: "growth", label: "Growth", icon: TrendingUp },
   { key: "mining", label: "Economy", icon: Gauge },
   { key: "tasks", label: "Campaigns", icon: ListChecks },
   { key: "users", label: "Users", icon: Users },
@@ -208,6 +211,7 @@ export default function Admin() {
 
         <div className="mt-4">
           {tab === "overview" ? <Overview onTab={setTab} /> : null}
+          {tab === "growth" ? <GrowthPanel /> : null}
           {tab === "mining" ? <Economy /> : null}
           {tab === "tasks" ? <Campaigns /> : null}
           {tab === "users" ? <UserTable /> : null}

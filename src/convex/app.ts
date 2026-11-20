@@ -303,6 +303,9 @@ export const snapshot = query({
         username: profile.username,
         photoUrl: profile.photoUrl,
         createdAt: profile.createdAt,
+        // Permanent lifecycle marker for onboarding: the live mining session is
+        // cleared when the app closes, this is not.
+        firstMiningStartedAt: profile.firstMiningStartedAt ?? null,
         language: profile.language,
         referralCode: profile.referralCode,
         referralLink: `https://t.me/${botUsername}?start=${profile.referralCode}`,
