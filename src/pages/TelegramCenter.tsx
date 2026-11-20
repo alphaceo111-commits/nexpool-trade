@@ -26,6 +26,7 @@ import {
   Plus,
   RefreshCw,
   Send,
+  ShieldAlert,
   ShieldCheck,
   Trash2,
   Users,
@@ -530,7 +531,7 @@ export default function TelegramCenter() {
                   <Input
                     value={chatId}
                     onChange={(event) => setChatId(event.target.value)}
-                    placeholder="@channelusername or -100… chat id"
+                    placeholder="@channel, t.me link or -100… chat id"
                     className="font-mono text-[11px]"
                   />
                   <Button
@@ -549,11 +550,43 @@ export default function TelegramCenter() {
                 </p>
               </Panel>
               {overview.destinations.length === 0 ? (
-                <EmptyState
-                  icon={<Users className="size-4" />}
-                  title="No destinations connected"
-                  body="Connect a test group or channel where @NEXPOOLBOT is already a member."
-                />
+                <>
+                  <Panel eyebrow="Setup" title="Connect and publish in three steps">
+                    <ol className="space-y-2 text-[11px] leading-relaxed text-muted-foreground">
+                      <li>
+                        <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-primary">
+                          1 ·
+                        </span>{" "}
+                        Open the channel or group in Telegram and add{" "}
+                        <span className="text-foreground">@NEXPOOLBOT</span>. For a
+                        channel it must be an administrator with “Post
+                        messages”; for a group, an administrator or a member
+                        allowed to send.
+                      </li>
+                      <li>
+                        <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-primary">
+                          2 ·
+                        </span>{" "}
+                        Paste its public @username, t.me link or -100… numeric id
+                        above and press “Check & connect”. The permission map is
+                        read from Telegram, not assumed.
+                      </li>
+                      <li>
+                        <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-primary">
+                          3 ·
+                        </span>{" "}
+                        Create an automation rule or a scheduled post. Connecting
+                        a chat does not make the backend publish anything by
+                        itself.
+                      </li>
+                    </ol>
+                  </Panel>
+                  <EmptyState
+                    icon={<Users className="size-4" />}
+                    title="No destinations connected"
+                    body="Nothing has been published because no channel or group is registered yet. The bot is running and its webhook is receiving updates — there is simply nowhere configured to post."
+                  />
+                </>
               ) : (
                 overview.destinations.map((destination) => (
                   <Panel
@@ -904,6 +937,22 @@ function OverviewTab({
           </p>
         </Panel>
       </div>
+      {overview.counts.automationsEnabled === 0 ? (
+        <div className="flex items-start gap-2.5 rounded-md border border-warn/40 bg-warn/[0.05] px-3 py-2.5">
+          <ShieldAlert className="mt-0.5 size-4 shrink-0 text-warn" />
+          <div className="min-w-0">
+            <p className="text-[11.5px] font-medium text-warn">
+              No automation rule is enabled
+            </p>
+            <p className="mt-1 text-[10.5px] leading-relaxed text-muted-foreground">
+              Connected chats receive nothing on their own. The backend
+              scheduler runs every 5 minutes and only sends rules whose slot has
+              arrived, so publishing starts after an enabled automation (or a
+              scheduled post) exists and has at least one destination selected.
+            </p>
+          </div>
+        </div>
+      ) : null}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <Metric label="Posts recorded" value={overview.counts.posts} />
         <Metric label="Sent deliveries" value={overview.counts.sent} tone="up" />

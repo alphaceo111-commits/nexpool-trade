@@ -74,9 +74,50 @@ async function operatorId(ctx: ActionCtx): Promise<string> {
   return String(result.userId);
 }
 
-async function inspectDestination(chatId: string) {
+/**
+ * Accepts what an operator actually pastes: @username, a t.me link, a link to
+ * a specific message, or a numeric chat id. Telegram's getChat only understands
+ * @username or a numeric id, so pasted links used to fail with "chat not found".
+ */
+function normalizeChatRef(raw: string) {
+  const value = raw.trim();
+  if (!value) {
+    throw new Error("A Telegram chat id, @username or t.me link is required.");
+  }
+  if (/^-?\d+$/.test(value)) return value;
+  const withoutScheme = value
+    .replace(/^https?:\/\//i, "")
+    .replace(/^(www\.)?(t|telegram)\.me\//i, "");
+  if (/^(\+|joinchat\/)/i.test(withoutScheme)) {
+    throw new Error(
+      "Invite links cannot be checked by the Bot API. Use the group's public @username or its -100… numeric id instead.",
+    );
+  }
+  const handle = withoutScheme.replace(/^@/, "").split(/[/?#]/)[0];
+  if (!/^[A-Za-z][A-Za-z0-9_]{3,}$/.test(handle)) {
+    throw new Error(
+      "That does not look like a Telegram @username or numeric chat id.",
+    );
+  }
+  return `@${handle}`;
+}
+
+async function inspectDestination(rawChatRef: string) {
+  const chatId = normalizeChatRef(rawChatRef);
   const me = await tg<{ id: number }>("getMe");
-  const chat = await tg<TelegramChat>("getChat", { chat_id: chatId });
+  let chat: TelegramChat;
+  try {
+    chat = await tg<TelegramChat>("getChat", { chat_id: chatId });
+  } catch (error) {
+    const reason =
+      error instanceof Error ? error.message : "Telegram rejected the chat.";
+    if (/not found|invalid|chat_id|upgraded/i.test(reason)) {
+      throw new Error(
+        `${chatId} is not visible to @NEXPOOLBOT. Add the bot to the channel or group first (as an administrator for channels), then connect it again. Telegram said: ${reason}`,
+      );
+    }
+    throw error;
+  }
   if (!["group", "supergroup", "channel"].includes(chat.type)) {
     throw new Error("Only groups, supergroups and channels can be connected.");
   }
@@ -122,6 +163,7 @@ export const overview = query({
   handler: async (ctx) => {
     await requireAdmin(ctx);
     const destinations = await ctx.db.query("telegramDestinations").collect();
+    const automations = await ctx.db.query("telegramAutomations").collect();
     const posts = await ctx.db
       .query("telegramPosts")
       .withIndex("by_createdAt")
@@ -141,6 +183,8 @@ export const overview = query({
         posts: posts.length,
         sent: deliveries.filter((row) => row.status === "sent").length,
         failed: deliveries.filter((row) => row.status === "failed").length,
+        automations: automations.length,
+        automationsEnabled: automations.filter((row) => row.enabled).length,
         scheduled: posts.filter((row) => row.status === "scheduled").length,
         partial: posts.filter((row) => row.status === "partially_published")
           .length,
@@ -312,8 +356,7 @@ export const addDestination = action({
   args: { chatId: v.string() },
   handler: async (ctx, args) => {
     const actor = await operatorId(ctx);
-    const chatId = args.chatId.trim();
-    if (!chatId) throw new Error("A Telegram chat id or @username is required.");
+    const chatId = normalizeChatRef(args.chatId);
     const info = await inspectDestination(chatId);
     const existing = await ctx.runQuery(
       internal.telegramControl.findDestination,
