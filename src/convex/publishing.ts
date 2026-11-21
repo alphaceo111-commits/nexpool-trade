@@ -469,6 +469,7 @@ function rankingBlock(
  */
 const LIBRARY_CATEGORY_BY_ID: Record<string, PublishCategory> = {
   C01: "motivation",
+  C10: "motivation",
   C15: "education",
   C19: "motivation",
   C20: "motivation",
@@ -478,6 +479,7 @@ const LIBRARY_CATEGORY_BY_ID: Record<string, PublishCategory> = {
   G09: "motivation",
   G11: "education",
   G12: "motivation",
+  G16: "motivation",
   G18: "education",
   G19: "motivation",
   G20: "motivation",

@@ -231,7 +231,7 @@ Explore your consecutive-day progress, work toward new milestones and keep parti
 Open NEXPOOL to see your streak.
 
 ${APP_LINK}`,
-    { blockedBy: "streaks are not implemented" },
+    { schedule: { frequency: "weekly", hourUtc: 8, minuteUtc: 0 } },
   ),
   channel(
     "C11",
@@ -598,7 +598,7 @@ Have you checked your NEXPOOL streak?
 Explore your streak history and see which milestone you're working toward.
 
 ${APP_LINK}`,
-    { blockedBy: "streaks are not implemented" },
+    { schedule: { frequency: "weekly", hourUtc: 14, minuteUtc: 0 } },
   ),
   group(
     "G17",
@@ -801,7 +801,7 @@ Your current streak is {current_streak} qualifying days.
 Check your progress and see your next milestone.
 
 ${APP_LINK}`,
-    { blockedBy: "streaks are not implemented" },
+    { blockedBy: BOT_DM_GAP },
   ),
   bot(
     "B12",
@@ -816,7 +816,7 @@ You've reached {current_streak} qualifying days.
 Your consistency is being recognized.
 
 ${APP_LINK}`,
-    { blockedBy: "streaks are not implemented" },
+    { blockedBy: BOT_DM_GAP },
   ),
   bot(
     "B13",
@@ -915,7 +915,7 @@ Current streak: {current_streak}
 Open your profile to explore your progress.
 
 ${APP_LINK}`,
-    { blockedBy: "streaks are not implemented, so the summary would be incomplete" },
+    { blockedBy: BOT_DM_GAP },
   ),
   bot(
     "B20",

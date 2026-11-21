@@ -23,6 +23,7 @@ import {
 } from "./engine";
 import { getViewer } from "./engine";
 import { LEVEL_DEFAULTS, claimedLevel, seedLevels } from "./levels";
+import { readStreak } from "./streaks";
 import { seedBotStartMissions, seedStarterMissions } from "./missions";
 import {
   attachReferral,
@@ -149,6 +150,9 @@ export const snapshot = query({
     );
     const now = Date.now();
     const userLevel = await claimedLevel(ctx, profile.userId);
+    // Ledger-derived: only settled mining, verified tasks, rewarded ads and
+    // qualified referrals make a day count. Opening the app never does.
+    const streak = await readStreak(ctx, profile.userId, now);
     const liveTasks = tasks.filter(
       (task) =>
         task.status === "active" &&
@@ -306,6 +310,7 @@ export const snapshot = query({
         // Permanent lifecycle marker for onboarding: the live mining session is
         // cleared when the app closes, this is not.
         firstMiningStartedAt: profile.firstMiningStartedAt ?? null,
+        streak,
         language: profile.language,
         referralCode: profile.referralCode,
         referralLink: `https://t.me/${botUsername}?start=${profile.referralCode}`,

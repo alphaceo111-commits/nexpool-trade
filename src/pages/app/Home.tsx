@@ -37,6 +37,7 @@ import {
 } from "@/components/app/parts";
 import { Button } from "@/components/ui/button";
 import { OnboardingChecklist } from "@/components/app/OnboardingChecklist";
+import { StreakCard } from "@/components/app/StreakCard";
 import { axisNex } from "@/components/app/TerminalChart";
 import { cn } from "@/lib/utils";
 
@@ -260,6 +261,8 @@ export default function Home() {
         tasksCompleted={tasks.completed}
         referralsQualified={referrals.qualified}
       />
+
+      <StreakCard streak={account.streak} />
 
       <div className="grid gap-4 lg:grid-cols-[1.12fr_0.88fr]">
         <section className="premium-card card-sheen relative overflow-hidden rounded-3xl p-5 sm:p-7">

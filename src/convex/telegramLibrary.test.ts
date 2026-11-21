@@ -62,11 +62,13 @@ describe("post library catalog", () => {
     }
   });
 
-  test("reports 13 schedulable templates and 38 blocked", () => {
-    expect(SCHEDULABLE_TEMPLATE_IDS).toHaveLength(13);
+  test("reports 15 schedulable templates and 36 blocked", () => {
+    expect(SCHEDULABLE_TEMPLATE_IDS).toHaveLength(15);
     expect(
       LIBRARY_TEMPLATES.filter((template) => template.blockedBy),
-    ).toHaveLength(38);
+    ).toHaveLength(36);
+    expect(SCHEDULABLE_TEMPLATE_IDS).toContain("C10");
+    expect(SCHEDULABLE_TEMPLATE_IDS).toContain("G16");
   });
 
   test("schedulable templates are unblocked and carry no dynamic data", () => {
@@ -121,6 +123,16 @@ describe("renderLibraryTemplate", () => {
   test("renders when all required verified values are present", () => {
     const rendered = renderLibraryTemplate("C05", { verified_users: 202 });
     expect(rendered.text).toContain("202 verified members");
+  });
+
+  test("streak posts use verified values and refuse guesses", () => {
+    expect(renderLibraryTemplate("B11", { current_streak: 5 }).text).toContain(
+      "5 qualifying days",
+    );
+    expect(renderLibraryTemplate("B12", { current_streak: 30 }).text).toContain(
+      "30 qualifying days",
+    );
+    expect(() => renderLibraryTemplate("B11", {})).toThrow(/current_streak/);
   });
 
   test("rejects an unknown template id", () => {
