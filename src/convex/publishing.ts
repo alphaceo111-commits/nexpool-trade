@@ -1419,6 +1419,70 @@ export const getAutomation = internalQuery({
   handler: async (ctx, args) => await ctx.db.get(args.id),
 });
 
+/**
+ * Operator bootstrap for scheduled publishing. Idempotent per template: calling
+ * it again enables and re-points the existing rule instead of duplicating it.
+ * `runNow` is for a deliberate first-run test; normal rules wait for their slot.
+ */
+export const seedAutomation = internalMutation({
+  args: {
+    templateKey: v.string(),
+    destinationIds: v.array(v.string()),
+    weekday: v.optional(v.number()),
+    requireApproval: v.optional(v.boolean()),
+    runNow: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const template = templateByKey.get(args.templateKey);
+    if (!template) throw new Error(`Unknown template ${args.templateKey}.`);
+    if (args.destinationIds.length === 0) {
+      throw new Error("Choose at least one destination.");
+    }
+    const now = Date.now();
+    const nextRunAt = args.runNow
+      ? now
+      : nextOccurrence(
+          now + 60_000,
+          template.frequency,
+          template.hourUtc,
+          template.minuteUtc,
+          args.weekday,
+        );
+    const existing = await ctx.db
+      .query("telegramAutomations")
+      .withIndex("by_templateKey", (q) => q.eq("templateKey", args.templateKey))
+      .first();
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        enabled: true,
+        destinationIds: args.destinationIds,
+        weekday: args.weekday ?? existing.weekday,
+        requireApproval: args.requireApproval ?? existing.requireApproval,
+        nextRunAt,
+        lastError: undefined,
+        updatedAt: now,
+      });
+      return { id: existing._id, created: false, nextRunAt };
+    }
+    const id = await ctx.db.insert("telegramAutomations", {
+      templateKey: args.templateKey,
+      enabled: true,
+      destinationIds: args.destinationIds,
+      frequency: template.frequency,
+      hourUtc: template.hourUtc,
+      minuteUtc: template.minuteUtc,
+      weekday: args.weekday,
+      requireApproval: args.requireApproval ?? false,
+      rotationIndex: 0,
+      nextRunAt,
+      createdBy: "operator-cli",
+      createdAt: now,
+      updatedAt: now,
+    });
+    return { id, created: true, nextRunAt };
+  },
+});
+
 export const dueAutomations = internalQuery({
   args: { now: v.number() },
   handler: async (ctx, args) => {
