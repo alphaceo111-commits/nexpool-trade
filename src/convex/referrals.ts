@@ -168,6 +168,42 @@ const countByStatus = (
 ) => rows.filter((row) => row.status === status).length;
 
 /** Referral desk: permanent records plus live task progress. */
+/**
+ * Records that the inviter opened an invitation action. Throttled per method so
+ * a double tap does not inflate the number. This never creates, changes or
+ * qualifies a referral.
+ */
+export const recordShareOpen = mutation({
+  args: {
+    method: v.union(v.literal("share_sheet"), v.literal("copy")),
+  },
+  handler: async (ctx, args) => {
+    const { userId, profile } = await getViewer(ctx);
+    if (!userId || !profile) throw new Error("Sign in first.");
+    const now = Date.now();
+    const recent = await ctx.db
+      .query("referralShares")
+      .withIndex("by_user_createdAt", (q) => q.eq("userId", userId))
+      .order("desc")
+      .take(1);
+    if (
+      recent[0] &&
+      recent[0].method === args.method &&
+      now - recent[0].createdAt < 60_000
+    ) {
+      return { recorded: false as const };
+    }
+    await ctx.db.insert("referralShares", {
+      userId,
+      profileId: profile._id,
+      code: profile.referralCode,
+      method: args.method,
+      createdAt: now,
+    });
+    return { recorded: true as const };
+  },
+});
+
 export const summary = query({
   args: {},
   handler: async (ctx) => {
@@ -176,6 +212,11 @@ export const summary = query({
     const config = await loadConfig(ctx);
     const rows = await listReferralDesk(ctx, profile._id, config);
     const qualified = rows.filter((row) => row.qualified);
+    const shares = await ctx.db
+      .query("referralShares")
+      .withIndex("by_user_createdAt", (q) => q.eq("userId", profile.userId))
+      .order("desc")
+      .collect();
     const referralLedger = await ctx.db
       .query("ledger")
       .withIndex("by_user_createdAt", (q) => q.eq("userId", profile.userId))
@@ -202,6 +243,12 @@ export const summary = query({
         Math.min(qualified.length, config.referralBonusCap) *
           config.referralBonusNexPerHour,
       ),
+      // Opens of the share sheet / copy action. Not deliveries: Telegram does
+      // not report who received a shared link.
+      shares: {
+        total: shares.length,
+        lastAt: shares[0]?.createdAt ?? null,
+      },
       rewards: referralLedger
         .filter((row) => row.kind === "referral")
         .map((row) => ({

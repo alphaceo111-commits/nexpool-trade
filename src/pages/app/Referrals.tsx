@@ -24,6 +24,7 @@ import {
   SectionHeading,
   StatusPill,
 } from "@/components/app/parts";
+import { InviteAllCard } from "@/components/app/InviteAllCard";
 import { Button } from "@/components/ui/button";
 import { openExternal } from "@/lib/telegram";
 import { cn } from "@/lib/utils";
@@ -69,6 +70,7 @@ export default function Referrals() {
     bonusPerReferral: config.referralBonusNexPerHour,
     bonusCap: config.referralBonusCap,
     bonusNexPerHour: fallback.bonusNexPerHour,
+    shares: { total: 0, lastAt: null },
     rewards: [],
   };
   const link = account.referralLink;
@@ -121,6 +123,16 @@ export default function Referrals() {
             {data.qualified}/{data.target}
           </StatusPill>
         }
+      />
+
+      <InviteAllCard
+        link={link}
+        displayName={account.displayName}
+        qualified={data.qualified}
+        pending={data.pending}
+        inProgress={data.inProgress}
+        taskTarget={data.taskTarget}
+        shares={data.shares}
       />
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">

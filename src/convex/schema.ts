@@ -327,6 +327,17 @@ const schema = defineSchema(
       .index("by_createdAt", ["createdAt"])
       .index("by_qualifiedAt", ["qualifiedAt"]),
 
+    // Invite share intents. Telegram never tells a bot who received a shared
+    // link, so this records only that the inviter opened the share sheet or
+    // copied the message. It is analytics and is never used as attribution.
+    referralShares: defineTable({
+      userId: v.id("users"),
+      profileId: v.id("profiles"),
+      code: v.string(),
+      method: v.union(v.literal("share_sheet"), v.literal("copy")),
+      createdAt: v.number(),
+    }).index("by_user_createdAt", ["userId", "createdAt"]),
+
     // Verification outcome log for rewarded ads. Completed challenges are the
     // earning source; this log is how failed, rejected and duplicate attempts
     // are reported without counting them as views.
