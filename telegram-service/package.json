@@ -1,0 +1,24 @@
+{
+  "name": "nexpool-telegram-service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MTProto contact-integration service for NEXPOOL. Holds encrypted Telegram user sessions; never exposes them to the Mini App.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "dev": "bun run src/index.ts",
+    "test": "bun test",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "teleproto": "^1.234.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2"
+  }
+}
