@@ -1,0 +1,5 @@
+// Generated locally from schema.ts.
+export type Id<TableName extends keyof typeof tables> = string & { __tableName?: TableName };
+export type Doc<TableName extends keyof typeof tables> = Record<string, unknown> & { _id: Id<TableName> };
+export type TableNames = keyof typeof tables;
+export const tables = { "users": null, "workers": null, "dailyStats": null, "hashrateSamples": null, "blocks": null, "payouts": null, "poolSettings": null, "botSettings": null, "botMessages": null, "appConfig": null, "profiles": null, "telegramIdentities": null, "telegramContacts": null, "referrals": null, "referralShares": null, "adVerificationEvents": null, "balances": null, "miningDays": null, "miningEntries": null, "miningAdChallenges": null, "miningExtensionSessions": null, "ledger": null, "tasks": null, "taskCompletions": null, "withdrawals": null, "deposits": null, "notifications": null, "levels": null, "levelClaims": null, "xpEvents": null, "telegramDestinations": null, "telegramPosts": null, "telegramAutomations": null, "telegramDeliveries": null, "telegramMedia": null, "telegramCommands": null, "accountMergeArchives": null, "auditLogs": null, "events": null } as const;

@@ -1,4 +1,6 @@
 .env.local
 node_modules
 dist
-src/convex/_generated
+# Convex generated bindings are committed so hosted builds (Vercel) work
+# without a Convex login. Regenerate with `bunx convex codegen` after schema
+# or function-name changes.
